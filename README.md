@@ -1,21 +1,11 @@
-# TanStack Start + shadcn/ui
+# smartRoute
 
-This is a template for a new TanStack Start project with React, TypeScript, and shadcn/ui.
+smartRoute is a World of Warcraft Mythic+ route planner based on the behavior and workflow of [`threechest`](https://github.com/acornellier/threechest).
 
-## Adding components
+## Goal
 
-To add components to your app, run the following command:
+The app should function like `threechest` while presenting route creation and editing in a modern UI.
 
-```bash
-npx shadcn@latest add button
-```
+## Project Rule
 
-This will place the ui components in the `components` directory.
-
-## Using components
-
-To use the components in your app, import them as follows:
-
-```tsx
-import { Button } from "@/components/ui/button";
-```
+Do not modify files under `src/components/ui` unless that is explicitly requested. Treat that directory as shared UI primitives and build planner-specific behavior around it.
