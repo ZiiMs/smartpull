@@ -1,5 +1,5 @@
 {
-  "name": "smartRoute",
+  "name": "smartpull",
   "private": true,
   "type": "module",
   "scripts": {
@@ -69,3 +69,4 @@
     "web-vitals": "^5.1.0"
   }
 }
+

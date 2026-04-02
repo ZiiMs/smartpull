@@ -1,6 +1,6 @@
-# smartRoute
+# Smart Pull
 
-smartRoute is a World of Warcraft Mythic+ route planner modeled after `threechest`.
+Smart Pull is a World of Warcraft Mythic+ route planner modeled after `threechest`.
 
 ## Product Direction
 
@@ -13,3 +13,4 @@ smartRoute is a World of Warcraft Mythic+ route planner modeled after `threeches
 - Do not edit files under `src/components/ui` unless the user explicitly asks for it.
 - Treat `src/components/ui` as shared design-system primitives.
 - Build new screens and planner-specific UI by composing the existing UI components.
+

@@ -16,7 +16,7 @@ export const Route = createRootRoute({
         content: "width=device-width, initial-scale=1",
       },
       {
-        title: "smartRoute",
+        title: "Smart Pull",
       },
     ],
     links: [
@@ -54,3 +54,4 @@ function RootDocument({ children }: { children: React.ReactNode }) {
     </html>
   )
 }
+

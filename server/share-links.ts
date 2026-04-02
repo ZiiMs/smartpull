@@ -7,8 +7,8 @@ const shareIdAlphabet = "23456789abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXY
 const shareLifetimeMonths = 6
 
 type ShareDatabaseGlobal = typeof globalThis & {
-  __smartRouteShareClient?: Client
-  __smartRouteShareSchemaPromise?: Promise<void>
+  __smartPullShareClient?: Client
+  __smartPullShareSchemaPromise?: Promise<void>
 }
 
 function getTursoEnv(name: "TURSO_DATABASE_URL" | "TURSO_AUTH_TOKEN") {
@@ -24,14 +24,14 @@ function getTursoEnv(name: "TURSO_DATABASE_URL" | "TURSO_AUTH_TOKEN") {
 
 function getShareClient() {
   const globalState = globalThis as ShareDatabaseGlobal
-  if (!globalState.__smartRouteShareClient) {
-    globalState.__smartRouteShareClient = createClient({
+  if (!globalState.__smartPullShareClient) {
+    globalState.__smartPullShareClient = createClient({
       url: getTursoEnv("TURSO_DATABASE_URL"),
       authToken: getTursoEnv("TURSO_AUTH_TOKEN"),
     })
   }
 
-  return globalState.__smartRouteShareClient
+  return globalState.__smartPullShareClient
 }
 
 function isDuplicateColumnError(error: unknown) {
@@ -41,9 +41,9 @@ function isDuplicateColumnError(error: unknown) {
 
 async function ensureShareSchema() {
   const globalState = globalThis as ShareDatabaseGlobal
-  if (!globalState.__smartRouteShareSchemaPromise) {
+  if (!globalState.__smartPullShareSchemaPromise) {
     const client = getShareClient()
-    globalState.__smartRouteShareSchemaPromise = (async () => {
+    globalState.__smartPullShareSchemaPromise = (async () => {
       await client.batch(
         [
           "CREATE TABLE IF NOT EXISTS shared_routes (id TEXT PRIMARY KEY, route_json TEXT NOT NULL, route_name TEXT NOT NULL, dungeon_key TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT)",
@@ -68,7 +68,7 @@ async function ensureShareSchema() {
     })()
   }
 
-  await globalState.__smartRouteShareSchemaPromise
+  await globalState.__smartPullShareSchemaPromise
 }
 
 function createShareId(length = 8) {
@@ -226,3 +226,4 @@ export async function getSharedRouteRecord(shareId: string) {
 
   return parsed
 }
+

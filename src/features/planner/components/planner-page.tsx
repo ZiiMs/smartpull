@@ -855,7 +855,7 @@ export function PlannerPage({ sharedRouteId = null }: { sharedRouteId?: string |
   if (!hydrated || !route) {
     return (
       <div className="flex min-h-svh items-center justify-center bg-background text-sm text-muted-foreground">
-        Loading smartRoute planner...
+        Loading Smart Pull planner...
       </div>
     )
   }
