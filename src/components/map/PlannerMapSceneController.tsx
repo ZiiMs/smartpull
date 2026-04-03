@@ -8,22 +8,38 @@ import type {
   selectDrawTool,
   selectMode,
 } from "@/features/planner/store/planner-store"
-import type { DungeonKey, Point } from "@/features/planner/types"
+import type {
+  DungeonDefinition,
+  DungeonKey,
+  Point,
+  SpawnId,
+} from "@/features/planner/types"
 import { useMap } from "../ui/map"
+import {
+  type PlannerMobLabelMode,
+  usePlannerMobScene,
+} from "./planner-map-mob-hooks"
 import {
   usePlannerMapData,
   usePlannerMapInteraction,
   usePlannerMapScene,
   usePlannerMapSceneAsset,
-  usePlannerMapZoomScale,
 } from "./planner-map-scene-hooks"
 
 function PlannerMapSceneController({
+  dungeon,
   dungeonKey,
+  hoveredGroup,
   mode,
+  modifierMode,
+  openMobContextMenu,
   drawTool,
   orderedPullOutlines,
+  pullColorBySpawn,
   routeDrawings,
+  sceneMounted,
+  selectedSpawnIds,
+  setHoveredSpawnId,
   draftDrawing,
   movePendingSticker,
   addNote,
@@ -35,9 +51,18 @@ function PlannerMapSceneController({
   setLoadPhase,
   setMapError,
   setShowBlockingOverlay,
+  toggleSpawn,
 }: {
+  dungeon: DungeonDefinition
   dungeonKey: DungeonKey
+  hoveredGroup: number | null
   mode: ReturnType<typeof selectMode>
+  modifierMode: PlannerMobLabelMode
+  openMobContextMenu: (payload: {
+    clientX: number
+    clientY: number
+    spawnId: SpawnId
+  }) => void
   drawTool: ReturnType<typeof selectDrawTool>
   orderedPullOutlines: Array<{
     pullId: string
@@ -45,7 +70,11 @@ function PlannerMapSceneController({
     outline: ReturnType<typeof getSelectedPullOutline>
     selected: boolean
   }>
+  pullColorBySpawn: ReadonlyMap<SpawnId, string>
   routeDrawings: NonNullable<ReturnType<typeof selectActiveRoute>>["drawings"]
+  sceneMounted: boolean
+  selectedSpawnIds: ReadonlySet<SpawnId>
+  setHoveredSpawnId: (spawnId: SpawnId | null) => void
   draftDrawing: Point[]
   movePendingSticker?: (point: Point) => boolean
   addNote: (point: Point, text?: string) => void
@@ -64,6 +93,7 @@ function PlannerMapSceneController({
   setLoadPhase: (value: PlannerMapLoadPhase) => void
   setMapError: (value: string | null) => void
   setShowBlockingOverlay: (value: boolean) => void
+  toggleSpawn: (spawnId: SpawnId, options?: { individual?: boolean }) => void
 }) {
   const { map, isLoaded } = useMap()
 
@@ -79,7 +109,6 @@ function PlannerMapSceneController({
     appendDraftPoint,
     openContextMenu,
   })
-  usePlannerMapZoomScale(map, isLoaded)
   usePlannerMapSceneAsset({
     map,
     isLoaded,
@@ -96,6 +125,20 @@ function PlannerMapSceneController({
     orderedPullOutlines,
     routeDrawings,
     draftDrawing,
+  })
+  usePlannerMobScene({
+    dungeon,
+    dungeonKey,
+    hoveredGroup,
+    isLoaded,
+    map,
+    modifierMode,
+    openMobContextMenu,
+    pullColorBySpawn,
+    sceneMounted,
+    selectedSpawnIds,
+    setHoveredSpawnId,
+    toggleSpawn,
   })
 
   return null

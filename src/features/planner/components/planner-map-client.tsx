@@ -1,5 +1,5 @@
 import PlannerMapSceneController from "@/components/map/PlannerMapSceneController"
-import PlannerMobMarker from "@/components/map/PlannerMobMarker"
+import PlannerMobHoverPopup from "@/components/map/PlannerMobHoverPopup"
 import PlannerNoteMarker from "@/components/map/PlannerNoteMarker"
 import PlannerPoiMarker from "@/components/map/PlannerPoiMarker"
 import PlannerStickerMarker from "@/components/map/PlannerStickerMarker"
@@ -29,6 +29,7 @@ import type {
   MobSpawn,
   PlannerSticker,
   Point,
+  SpawnId,
 } from "@/features/planner/types"
 import type { StyleSpecification } from "maplibre-gl"
 import {
@@ -86,12 +87,6 @@ type PendingMapAnnotation =
       stickerKind: PlannerSticker["kind"]
       position: Point
     }
-
-const emptyHoveredMob = {
-  group: null,
-  spawnId: null,
-} as const
-
 function getCentroid(points: Point[]) {
   const total = points.reduce<Point>(
     (sum, point) => [sum[0] + point[0], sum[1] + point[1]],
@@ -287,11 +282,6 @@ export function PlannerMapClient() {
   const selectedPullId = usePlannerStore((state) =>
     selectSelectedPullId(state.present),
   )
-  const mapRootRef = useRef<HTMLDivElement | null>(null)
-  const hoveredMobRef = useRef<{
-    group: number | null
-    spawnId: string | null
-  }>(emptyHoveredMob)
   const [activeSceneDungeonKey, setActiveSceneDungeonKey] = useState<
     string | null
   >(null)
@@ -308,6 +298,10 @@ export function PlannerMapClient() {
     string | null
   >(null)
   const [infoMobSpawn, setInfoMobSpawn] = useState<MobSpawn | null>(null)
+  const [hoveredSpawnId, setHoveredSpawnId] = useState<SpawnId | null>(null)
+  const [modifierMode, setModifierMode] = useState<"default" | "ctrl" | "alt">(
+    "default",
+  )
   const mapContextMenuRef = useRef<HTMLDivElement | null>(null)
 
   const selectedPull = useMemo(
@@ -364,6 +358,13 @@ export function PlannerMapClient() {
 
   const sceneMounted = activeSceneDungeonKey === dungeon.key && !mapError
   const sceneReady = loadPhase === "ready"
+  const hoveredMobSpawn = hoveredSpawnId
+    ? dungeon.mobSpawns[hoveredSpawnId] ?? null
+    : null
+  const hoveredPullIndex = hoveredSpawnId
+    ? routeVisualState.pullIndexBySpawn.get(hoveredSpawnId)
+    : undefined
+  const hoveredGroup = hoveredMobSpawn?.spawn.group ?? null
 
   function loadingMessage() {
     if (loadPhase === "switching-scene") {
@@ -372,62 +373,6 @@ export function PlannerMapClient() {
 
     return "Loading planner surface..."
   }
-
-  const setHoveredGroupState = useCallback(
-    (group: number | null, hovered: boolean) => {
-      if (group == null) {
-        return
-      }
-
-      const root = mapRootRef.current
-      if (!root) {
-        return
-      }
-
-      const markerElements = root.querySelectorAll<HTMLElement>(
-        `[data-planner-mob-group="${group}"]`,
-      )
-
-      for (const markerElement of markerElements) {
-        if (hovered) {
-          markerElement.dataset.groupHovered = "true"
-        } else {
-          delete markerElement.dataset.groupHovered
-        }
-      }
-    },
-    [],
-  )
-
-  const handleMobHoverStart = useCallback(
-    (spawnId: string, group: number | null) => {
-      const currentHoveredMob = hoveredMobRef.current
-      if (
-        currentHoveredMob.spawnId === spawnId &&
-        currentHoveredMob.group === group
-      ) {
-        return
-      }
-
-      setHoveredGroupState(currentHoveredMob.group, false)
-      hoveredMobRef.current = { spawnId, group }
-      setHoveredGroupState(group, true)
-    },
-    [setHoveredGroupState],
-  )
-
-  const handleMobHoverEnd = useCallback(
-    (spawnId: string) => {
-      const currentHoveredMob = hoveredMobRef.current
-      if (currentHoveredMob.spawnId !== spawnId) {
-        return
-      }
-
-      setHoveredGroupState(currentHoveredMob.group, false)
-      hoveredMobRef.current = emptyHoveredMob
-    },
-    [setHoveredGroupState],
-  )
 
   useEffect(() => {
     const cancelIdle = queueIdleTask(() => {
@@ -438,28 +383,21 @@ export function PlannerMapClient() {
   }, [])
 
   useEffect(() => {
-    function applyModifierState(altPressed: boolean, ctrlPressed: boolean) {
-      const root = mapRootRef.current
-      if (!root) {
-        return
-      }
-
-      root.dataset.plannerMobModifier = ctrlPressed
-        ? "ctrl"
-        : altPressed
-          ? "alt"
-          : "default"
-    }
-
     function syncModifierKeys(event: KeyboardEvent) {
-      applyModifierState(event.altKey, event.ctrlKey || event.metaKey)
+      setModifierMode(
+        event.ctrlKey || event.metaKey
+        ? "ctrl"
+        : event.altKey
+          ? "alt"
+          : "default",
+      )
     }
 
     function resetModifierKeys() {
-      applyModifierState(false, false)
+      setModifierMode("default")
     }
 
-    applyModifierState(false, false)
+    setModifierMode("default")
     window.addEventListener("keydown", syncModifierKeys)
     window.addEventListener("keyup", syncModifierKeys)
     window.addEventListener("blur", resetModifierKeys)
@@ -472,9 +410,9 @@ export function PlannerMapClient() {
   }, [])
 
   useEffect(() => {
-    setHoveredGroupState(hoveredMobRef.current.group, false)
-    hoveredMobRef.current = emptyHoveredMob
-  }, [dungeon.key, setHoveredGroupState])
+    setHoveredSpawnId(null)
+    setMapContextMenu(null)
+  }, [dungeon.key, sceneMounted])
 
   const closeMapContextMenu = useCallback(() => {
     setMapContextMenu(null)
@@ -520,10 +458,29 @@ export function PlannerMapClient() {
   )
 
   const openMobContextMenu = useCallback(
-    (event: ReactMouseEvent<HTMLDivElement>, mobSpawn: MobSpawn) => {
-      openMarkerContextMenu(event, mobSpawn.spawn.pos, mobSpawn)
+    ({
+      clientX,
+      clientY,
+      spawnId,
+    }: {
+      clientX: number
+      clientY: number
+      spawnId: SpawnId
+    }) => {
+      const mobSpawn = dungeon.mobSpawns[spawnId]
+      if (!mobSpawn) {
+        return
+      }
+
+      setMapContextMenu({
+        x: clientX + 4,
+        y: clientY + 4,
+        position: mobSpawn.spawn.pos,
+        mobSpawn,
+        sticker: null,
+      })
     },
-    [openMarkerContextMenu],
+    [dungeon.mobSpawns],
   )
 
   const handleStaticMarkerContextMenu = useCallback(
@@ -681,11 +638,7 @@ export function PlannerMapClient() {
   }
 
   return (
-    <div
-      ref={mapRootRef}
-      className="relative h-full w-full bg-background"
-      data-planner-mob-modifier="default"
-    >
+    <div className="relative h-full w-full bg-background">
       <SharedMap
         className="planner-map h-full w-full bg-background"
         styles={{ dark: blankStyle, light: blankStyle }}
@@ -700,11 +653,19 @@ export function PlannerMapClient() {
         touchPitch={false}
       >
         <PlannerMapSceneController
+          dungeon={dungeon}
           dungeonKey={dungeon.key}
+          hoveredGroup={hoveredGroup}
           mode={mode}
+          modifierMode={modifierMode}
+          openMobContextMenu={openMobContextMenu}
           drawTool={drawTool}
           orderedPullOutlines={orderedPullOutlines}
+          pullColorBySpawn={routeVisualState.pullColorBySpawn}
           routeDrawings={route.drawings}
+          sceneMounted={sceneMounted}
+          selectedSpawnIds={routeVisualState.selectedSpawnIds}
+          setHoveredSpawnId={setHoveredSpawnId}
           draftDrawing={draftDrawing}
           movePendingSticker={handlePlaceMovedSticker}
           addNote={addNote}
@@ -716,7 +677,16 @@ export function PlannerMapClient() {
           setLoadPhase={setLoadPhase}
           setMapError={setMapError}
           setShowBlockingOverlay={setShowBlockingOverlay}
+          toggleSpawn={toggleSpawn}
         />
+
+        {sceneMounted ? (
+          <PlannerMobHoverPopup
+            mobSpawn={hoveredMobSpawn}
+            pullIndex={hoveredPullIndex}
+            totalEnemyForces={dungeon.mdt.totalCount}
+          />
+        ) : null}
 
         {sceneMounted
           ? orderedPullOutlines.map(
@@ -796,26 +766,6 @@ export function PlannerMapClient() {
                     (poi.type === "graveyard" ? "Graveyard" : "Entrance")
                   }
                   onContextMenu={handleStaticMarkerContextMenu}
-                />
-              )
-            })
-          : null}
-
-        {sceneMounted
-          ? dungeon.mobSpawnsList.map((mobSpawn) => {
-              const spawnId = mobSpawn.spawn.id
-              return (
-                <PlannerMobMarker
-                  key={spawnId}
-                  mobSpawn={mobSpawn}
-                  pullColor={routeVisualState.pullColorBySpawn.get(spawnId)}
-                  isSelected={routeVisualState.selectedSpawnIds.has(spawnId)}
-                  pullIndex={routeVisualState.pullIndexBySpawn.get(spawnId)}
-                  onHoverStart={handleMobHoverStart}
-                  onHoverEnd={handleMobHoverEnd}
-                  onContextMenu={openMobContextMenu}
-                  toggleSpawn={toggleSpawn}
-                  totalEnemyForces={dungeon.mdt.totalCount}
                 />
               )
             })

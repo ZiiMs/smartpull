@@ -9,7 +9,6 @@ import {
   hasStitchedDungeonMapInMemory,
   lngLatToPoint,
   mapBounds,
-  mapIconScaling,
   pointToLngLat,
   stitchDungeonMap,
 } from "@/features/planner/lib/map"
@@ -33,8 +32,6 @@ const draftDrawingLayerId = "planner-draft-drawing"
 const dungeonImageSourceId = "planner-dungeon-image"
 const dungeonImageLayerId = "planner-dungeon-image-layer"
 const portraitFallbackSrc = "/images/markers/skull.png"
-const plannerIconScalingCssVar = "--planner-icon-scaling"
-const plannerIconScalingPxCssVar = "--planner-icon-scaling-px"
 
 function updateDungeonImageSource(activeMap: maplibregl.Map, url: string) {
   const source = activeMap.getSource(dungeonImageSourceId) as
@@ -49,13 +46,6 @@ function updateDungeonImageSource(activeMap: maplibregl.Map, url: string) {
     url,
     coordinates: dungeonImageCoordinates(),
   })
-}
-
-function setPlannerIconScaling(activeMap: maplibregl.Map, iconScaling: number) {
-  const containerStyle = activeMap.getContainer().style
-
-  containerStyle.setProperty(plannerIconScalingCssVar, String(iconScaling))
-  containerStyle.setProperty(plannerIconScalingPxCssVar, `${iconScaling}px`)
 }
 
 export function usePlannerMapScene(
@@ -252,28 +242,6 @@ export function usePlannerMapInteraction({
     openContextMenu,
     placeSticker,
   ])
-}
-
-export function usePlannerMapZoomScale(
-  map: maplibregl.Map | null,
-  isLoaded: boolean,
-) {
-  useEffect(() => {
-    if (!map || !isLoaded) {
-      return
-    }
-
-    const syncIconScaling = () => {
-      setPlannerIconScaling(map, mapIconScaling(map))
-    }
-
-    map.on("zoom", syncIconScaling)
-    syncIconScaling()
-
-    return () => {
-      map.off("zoom", syncIconScaling)
-    }
-  }, [isLoaded, map])
 }
 
 export function usePlannerMapSceneAsset({
