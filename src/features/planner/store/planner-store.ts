@@ -8,6 +8,7 @@ import {
 import { createId } from "@/features/planner/lib/ids"
 import { getPullColor } from "@/features/planner/lib/pull-colors"
 import type {
+  PlannerDrawTool,
   DungeonKey,
   PlannerMode,
   PlannerPresent,
@@ -61,6 +62,7 @@ function createRoute(
     pulls: [createPull("Pull 1", getPullColor(0))],
     notes: [],
     drawings: [],
+    stickers: [],
     createdAt: now,
     updatedAt: now,
   }
@@ -76,6 +78,7 @@ export function createInitialPresent(): PlannerPresent {
     activeRouteId: initialRoute.id,
     selectedPullId: initialRoute.pulls[0]?.id ?? "",
     mode: "pulls",
+    drawTool: "line",
     draftDrawing: [],
   }
 }
@@ -125,6 +128,7 @@ function groupedSpawnIds(
 
 function normalizeRoute(route: PlannerRoute) {
   route.pulls = normalizePulls(route.pulls)
+  route.stickers ??= []
 }
 
 function sanitizeRoute(route: PlannerRoute) {
@@ -171,6 +175,7 @@ function sanitizeRoute(route: PlannerRoute) {
   return {
     ...route,
     pulls: sanitizedPulls,
+    stickers: route.stickers ?? [],
     updatedAt: new Date().toISOString(),
   }
 }
@@ -183,6 +188,7 @@ export function sanitizePlannerPresent(present: PlannerPresent) {
   return {
     ...present,
     dungeonKey,
+    drawTool: present.drawTool ?? "line",
     routes: present.routes.map(sanitizeRoute),
   }
 }
@@ -211,6 +217,7 @@ type PlannerStore = PlannerSnapshot & {
   hydrate: () => void
   setDungeon: (dungeonKey: DungeonKey) => void
   setMode: (mode: PlannerMode) => void
+  setDrawTool: (drawTool: PlannerDrawTool) => void
   selectRoute: (routeId: string) => void
   createRoute: () => void
   duplicateActiveRoute: () => void
@@ -232,7 +239,15 @@ type PlannerStore = PlannerSnapshot & {
   deleteNote: (noteId: string) => void
   appendDraftPoint: (point: Point) => void
   commitDraftDrawing: () => void
+  deleteDrawing: (drawingId: string) => void
   cancelDraftDrawing: () => void
+  addSticker: (
+    kind: Exclude<PlannerDrawTool, "line">,
+    position: Point,
+    text?: string,
+  ) => void
+  moveSticker: (stickerId: string, position: Point) => void
+  deleteSticker: (stickerId: string) => void
   importSharedRoute: (route: PlannerRoute) => void
   setActiveRouteShareId: (shareId: string) => void
   undo: () => void
@@ -357,12 +372,20 @@ export const usePlannerStore = create<PlannerStore>((set) => {
           draft.selectedPullId = route.pulls[0].id
         }
         draft.mode = "pulls"
+        draft.drawTool = "line"
         draft.draftDrawing = []
       }, false),
     setMode: (mode) =>
       commit((draft) => {
         draft.mode = mode
         if (mode !== "draw") {
+          draft.draftDrawing = []
+        }
+      }, false),
+    setDrawTool: (drawTool) =>
+      commit((draft) => {
+        draft.drawTool = drawTool
+        if (drawTool !== "line") {
           draft.draftDrawing = []
         }
       }, false),
@@ -410,6 +433,10 @@ export const usePlannerStore = create<PlannerStore>((set) => {
           ...drawing,
           id: createId("drawing"),
         }))
+        copy.stickers = copy.stickers.map((sticker) => ({
+          ...sticker,
+          id: createId("sticker"),
+        }))
         draft.routes.push(copy)
         draft.activeRouteId = copy.id
         draft.selectedPullId = copy.pulls[0].id
@@ -455,6 +482,7 @@ export const usePlannerStore = create<PlannerStore>((set) => {
         route.pulls = [createPull("Pull 1", getPullColor(0))]
         route.notes = []
         route.drawings = []
+        route.stickers = []
         touchRoute(route)
         draft.selectedPullId = route.pulls[0].id
         draft.draftDrawing = []
@@ -701,6 +729,10 @@ export const usePlannerStore = create<PlannerStore>((set) => {
       }),
     appendDraftPoint: (point) =>
       commit((draft) => {
+        if (draft.drawTool !== "line") {
+          return
+        }
+
         draft.draftDrawing = [...draft.draftDrawing, point]
       }, false),
     commitDraftDrawing: () =>
@@ -720,10 +752,64 @@ export const usePlannerStore = create<PlannerStore>((set) => {
         touchRoute(route)
         draft.draftDrawing = []
       }),
+    deleteDrawing: (drawingId) =>
+      commit((draft) => {
+        const route = getActiveRoute(draft)
+        if (!route) {
+          return
+        }
+
+        route.drawings = route.drawings.filter(
+          (drawing) => drawing.id !== drawingId,
+        )
+        touchRoute(route)
+      }),
     cancelDraftDrawing: () =>
       commit((draft) => {
         draft.draftDrawing = []
       }, false),
+    addSticker: (kind, position, text) =>
+      commit((draft) => {
+        const route = getActiveRoute(draft)
+        if (!route) {
+          return
+        }
+
+        route.stickers.push({
+          id: createId("sticker"),
+          kind,
+          position,
+          text: text?.trim() || undefined,
+        })
+        touchRoute(route)
+      }),
+    moveSticker: (stickerId, position) =>
+      commit((draft) => {
+        const route = getActiveRoute(draft)
+        if (!route) {
+          return
+        }
+
+        const sticker = route.stickers.find((item) => item.id === stickerId)
+        if (!sticker) {
+          return
+        }
+
+        sticker.position = position
+        touchRoute(route)
+      }),
+    deleteSticker: (stickerId) =>
+      commit((draft) => {
+        const route = getActiveRoute(draft)
+        if (!route) {
+          return
+        }
+
+        route.stickers = route.stickers.filter(
+          (sticker) => sticker.id !== stickerId,
+        )
+        touchRoute(route)
+      }),
     importSharedRoute: (route) =>
       commit((draft) => {
         const importedRoute = sanitizeRoute({
@@ -743,6 +829,10 @@ export const usePlannerStore = create<PlannerStore>((set) => {
           drawings: route.drawings.map((drawing) => ({
             ...drawing,
             id: createId("drawing"),
+          })),
+          stickers: (route.stickers ?? []).map((sticker) => ({
+            ...sticker,
+            id: createId("sticker"),
           })),
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
@@ -811,6 +901,10 @@ export function selectDungeonKey(present: PlannerPresent) {
 
 export function selectDraftDrawing(present: PlannerPresent) {
   return present.draftDrawing
+}
+
+export function selectDrawTool(present: PlannerPresent) {
+  return present.drawTool
 }
 
 export function selectMode(present: PlannerPresent) {

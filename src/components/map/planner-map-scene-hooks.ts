@@ -15,6 +15,7 @@ import {
 } from "@/features/planner/lib/map"
 import type {
   selectActiveRoute,
+  selectDrawTool,
   selectMode,
 } from "@/features/planner/store/planner-store"
 import type { DungeonKey, Point } from "@/features/planner/types"
@@ -166,14 +167,23 @@ export function usePlannerMapInteraction({
   map,
   isLoaded,
   mode,
+  drawTool,
+  movePendingSticker,
   addNote,
+  placeSticker,
   appendDraftPoint,
   openContextMenu,
 }: {
   map: maplibregl.Map | null
   isLoaded: boolean
   mode: ReturnType<typeof selectMode>
+  drawTool: ReturnType<typeof selectDrawTool>
+  movePendingSticker?: (point: Point) => boolean
   addNote: (point: Point, text?: string) => void
+  placeSticker: (
+    kind: Exclude<ReturnType<typeof selectDrawTool>, "line">,
+    position: Point,
+  ) => void
   appendDraftPoint: (point: Point) => void
   openContextMenu: (payload: {
     clientX: number
@@ -189,10 +199,18 @@ export function usePlannerMapInteraction({
     const handleMapClick = (event: maplibregl.MapMouseEvent) => {
       const point = lngLatToPoint(event.lngLat)
 
+      if (movePendingSticker?.(point)) {
+        return
+      }
+
       if (mode === "notes") {
         addNote(point)
       } else if (mode === "draw") {
-        appendDraftPoint(point)
+        if (drawTool === "line") {
+          appendDraftPoint(point)
+        } else {
+          placeSticker(drawTool, point)
+        }
       }
     }
 
@@ -215,7 +233,17 @@ export function usePlannerMapInteraction({
       map.off("click", handleMapClick)
       map.off("contextmenu", handleMapContextMenu)
     }
-  }, [addNote, appendDraftPoint, isLoaded, map, mode, openContextMenu])
+  }, [
+    addNote,
+    appendDraftPoint,
+    drawTool,
+    isLoaded,
+    map,
+    mode,
+    movePendingSticker,
+    openContextMenu,
+    placeSticker,
+  ])
 }
 
 export function usePlannerMapZoomScale(

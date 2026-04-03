@@ -2,11 +2,13 @@ import PlannerMapSceneController from "@/components/map/PlannerMapSceneControlle
 import PlannerMobMarker from "@/components/map/PlannerMobMarker"
 import PlannerNoteMarker from "@/components/map/PlannerNoteMarker"
 import PlannerPoiMarker from "@/components/map/PlannerPoiMarker"
+import PlannerStickerMarker from "@/components/map/PlannerStickerMarker"
 import { MapMarker, MarkerContent, Map as SharedMap } from "@/components/ui/map"
 import { dungeons } from "@/features/planner/data/dungeons"
 import { PlannerMapContextMenu } from "@/features/planner/components/planner-map-context-menu"
 import { PlannerMobInfoDialog } from "@/features/planner/components/planner-mob-info-dialog"
 import { PlannerNoteDialog } from "@/features/planner/components/planner-note-dialog"
+import { plannerStickerMeta } from "@/features/planner/lib/stickers"
 import {
   circlePolygon,
   mapCenter,
@@ -18,11 +20,12 @@ import {
   selectActiveDungeon,
   selectActiveRoute,
   selectDraftDrawing,
+  selectDrawTool,
   selectMode,
   selectSelectedPullId,
   usePlannerStore,
 } from "@/features/planner/store/planner-store"
-import type { MobSpawn, Point } from "@/features/planner/types"
+import type { MobSpawn, PlannerSticker, Point } from "@/features/planner/types"
 import type { StyleSpecification } from "maplibre-gl"
 import {
   type MouseEvent as ReactMouseEvent,
@@ -64,7 +67,20 @@ type MapContextMenuState = {
   y: number
   position: Point
   mobSpawn: MobSpawn | null
+  sticker: PlannerSticker | null
 }
+
+type PendingMapAnnotation =
+  | {
+      kind: "note"
+      mobSpawn: MobSpawn | null
+      position: Point
+    }
+  | {
+      kind: "sticker"
+      stickerKind: PlannerSticker["kind"]
+      position: Point
+    }
 
 const emptyHoveredMob = {
   group: null,
@@ -253,9 +269,13 @@ export function PlannerMapClient() {
   const toggleSpawn = usePlannerStore((state) => state.toggleSpawn)
   const appendDraftPoint = usePlannerStore((state) => state.appendDraftPoint)
   const addNote = usePlannerStore((state) => state.addNote)
+  const addSticker = usePlannerStore((state) => state.addSticker)
+  const moveSticker = usePlannerStore((state) => state.moveSticker)
+  const deleteSticker = usePlannerStore((state) => state.deleteSticker)
   const dungeon = usePlannerStore((state) => selectActiveDungeon(state.present))
   const route = usePlannerStore((state) => selectActiveRoute(state.present))
   const mode = usePlannerStore((state) => selectMode(state.present))
+  const drawTool = usePlannerStore((state) => selectDrawTool(state.present))
   const draftDrawing = usePlannerStore((state) =>
     selectDraftDrawing(state.present),
   )
@@ -277,10 +297,11 @@ export function PlannerMapClient() {
   const [showBlockingOverlay, setShowBlockingOverlay] = useState(true)
   const [mapContextMenu, setMapContextMenu] =
     useState<MapContextMenuState | null>(null)
-  const [pendingNoteTarget, setPendingNoteTarget] = useState<{
-    mobSpawn: MobSpawn | null
-    position: Point
-  } | null>(null)
+  const [pendingAnnotation, setPendingAnnotation] =
+    useState<PendingMapAnnotation | null>(null)
+  const [pendingStickerMoveId, setPendingStickerMoveId] = useState<
+    string | null
+  >(null)
   const [infoMobSpawn, setInfoMobSpawn] = useState<MobSpawn | null>(null)
   const mapContextMenuRef = useRef<HTMLDivElement | null>(null)
 
@@ -473,6 +494,7 @@ export function PlannerMapClient() {
         y: clientY + 4,
         position: point,
         mobSpawn: null,
+        sticker: null,
       })
     },
     [],
@@ -483,12 +505,14 @@ export function PlannerMapClient() {
       event: ReactMouseEvent<HTMLDivElement>,
       position: Point,
       mobSpawn: MobSpawn | null,
+      sticker: PlannerSticker | null = null,
     ) => {
       setMapContextMenu({
         x: event.clientX + 4,
         y: event.clientY + 4,
         position,
         mobSpawn,
+        sticker,
       })
     },
     [],
@@ -508,28 +532,87 @@ export function PlannerMapClient() {
     [openMarkerContextMenu],
   )
 
+  const handleStickerContextMenu = useCallback(
+    (event: ReactMouseEvent<HTMLDivElement>, sticker: PlannerSticker) => {
+      openMarkerContextMenu(event, sticker.position, null, sticker)
+    },
+    [openMarkerContextMenu],
+  )
+
+  const handleDeleteSticker = useCallback(() => {
+    if (!mapContextMenu?.sticker) {
+      return
+    }
+
+    deleteSticker(mapContextMenu.sticker.id)
+    closeMapContextMenu()
+  }, [closeMapContextMenu, deleteSticker, mapContextMenu])
+
+  const handleMoveSticker = useCallback(() => {
+    if (!mapContextMenu?.sticker) {
+      return
+    }
+
+    setPendingStickerMoveId(mapContextMenu.sticker.id)
+    closeMapContextMenu()
+  }, [closeMapContextMenu, mapContextMenu])
+
+  const handlePlaceMovedSticker = useCallback(
+    (point: Point) => {
+      if (!pendingStickerMoveId) {
+        return false
+      }
+
+      moveSticker(pendingStickerMoveId, point)
+      setPendingStickerMoveId(null)
+      return true
+    },
+    [moveSticker, pendingStickerMoveId],
+  )
+
   const handleOpenAddNoteDialog = useCallback(() => {
     if (!mapContextMenu) {
       return
     }
 
-    setPendingNoteTarget({
+    setPendingAnnotation({
+      kind: "note",
       mobSpawn: mapContextMenu.mobSpawn,
       position: mapContextMenu.position,
     })
     closeMapContextMenu()
   }, [closeMapContextMenu, mapContextMenu])
 
-  const handleCreateNote = useCallback(
+  const handleCreateAnnotation = useCallback(
     (text: string) => {
-      if (!pendingNoteTarget) {
+      if (!pendingAnnotation) {
         return
       }
 
-      addNote(pendingNoteTarget.position, text)
-      setPendingNoteTarget(null)
+      if (pendingAnnotation.kind === "note") {
+        addNote(pendingAnnotation.position, text)
+      } else {
+        addSticker(
+          pendingAnnotation.stickerKind,
+          pendingAnnotation.position,
+          text,
+        )
+      }
+
+      setPendingAnnotation(null)
     },
-    [addNote, pendingNoteTarget],
+    [addNote, addSticker, pendingAnnotation],
+  )
+
+  const handlePlaceSticker = useCallback(
+    (kind: PlannerSticker["kind"], position: Point) => {
+      setPendingAnnotation({
+        kind: "sticker",
+        stickerKind: kind,
+        position,
+      })
+    },
+    [],
   )
 
   const handleOpenMobInfoDialog = useCallback(() => {
@@ -577,6 +660,21 @@ export function PlannerMapClient() {
     }
   }, [closeMapContextMenu, mapContextMenu])
 
+  useEffect(() => {
+    if (!pendingStickerMoveId) {
+      return
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setPendingStickerMoveId(null)
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown)
+    return () => window.removeEventListener("keydown", handleKeyDown)
+  }, [pendingStickerMoveId])
+
   if (!route) {
     return null
   }
@@ -603,10 +701,13 @@ export function PlannerMapClient() {
         <PlannerMapSceneController
           dungeonKey={dungeon.key}
           mode={mode}
+          drawTool={drawTool}
           orderedPullOutlines={orderedPullOutlines}
           routeDrawings={route.drawings}
           draftDrawing={draftDrawing}
+          movePendingSticker={handlePlaceMovedSticker}
           addNote={addNote}
+          placeSticker={handlePlaceSticker}
           appendDraftPoint={appendDraftPoint}
           openContextMenu={openMapContextMenu}
           setActiveDungeonAsset={setActiveDungeonAsset}
@@ -654,6 +755,21 @@ export function PlannerMapClient() {
                 text={note.text}
                 position={note.position}
                 onContextMenu={handleStaticMarkerContextMenu}
+              />
+            ))
+          : null}
+
+        {sceneMounted
+          ? route.stickers.map((sticker) => (
+              <PlannerStickerMarker
+                key={sticker.id}
+                sticker={sticker}
+                onContextMenu={(event) =>
+                  handleStickerContextMenu(event, sticker)
+                }
+                onShiftClick={(targetSticker) =>
+                  setPendingStickerMoveId(targetSticker.id)
+                }
               />
             ))
           : null}
@@ -709,7 +825,10 @@ export function PlannerMapClient() {
         <PlannerMapContextMenu
           menuRef={mapContextMenuRef}
           mobSpawn={mapContextMenu.mobSpawn}
+          sticker={mapContextMenu.sticker}
           onAddNote={handleOpenAddNoteDialog}
+          onDeleteSticker={handleDeleteSticker}
+          onMoveSticker={handleMoveSticker}
           onMobInfo={handleOpenMobInfoDialog}
           position={mapContextMenu.position}
           x={mapContextMenu.x}
@@ -723,6 +842,17 @@ export function PlannerMapClient() {
         </div>
       ) : null}
 
+      {pendingStickerMoveId ? (
+        <div className="pointer-events-none absolute left-3 bottom-3 z-[430] border border-border/70 bg-card/88 px-3 py-2 text-xs text-foreground shadow-xl backdrop-blur md:left-4 md:bottom-4">
+          Shift-click picked up{" "}
+          {plannerStickerMeta[
+            route.stickers.find((item) => item.id === pendingStickerMoveId)
+              ?.kind ?? "bloodlust"
+          ].name.toLowerCase()}
+          . Click on the map to place it.
+        </div>
+      ) : null}
+
       {mapError ? (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background/90 px-4 text-center text-xs text-destructive-foreground">
           {mapError}
@@ -730,13 +860,20 @@ export function PlannerMapClient() {
       ) : null}
 
       <PlannerNoteDialog
-        mobSpawn={pendingNoteTarget?.mobSpawn ?? null}
-        open={pendingNoteTarget != null}
-        position={pendingNoteTarget?.position ?? null}
-        onCreateNote={handleCreateNote}
+        mobSpawn={
+          pendingAnnotation?.kind === "note" ? pendingAnnotation.mobSpawn : null
+        }
+        stickerKind={
+          pendingAnnotation?.kind === "sticker"
+            ? pendingAnnotation.stickerKind
+            : null
+        }
+        open={pendingAnnotation != null}
+        position={pendingAnnotation?.position ?? null}
+        onCreateNote={handleCreateAnnotation}
         onOpenChange={(open) => {
           if (!open) {
-            setPendingNoteTarget(null)
+            setPendingAnnotation(null)
           }
         }}
       />
