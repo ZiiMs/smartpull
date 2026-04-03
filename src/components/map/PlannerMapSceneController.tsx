@@ -5,6 +5,7 @@ import type {
 } from "@/features/planner/components/planner-map-client"
 import type {
   selectActiveRoute,
+  selectDrawTool,
   selectMode,
 } from "@/features/planner/store/planner-store"
 import type {
@@ -32,6 +33,7 @@ function PlannerMapSceneController({
   mode,
   modifierMode,
   openMobContextMenu,
+  drawTool,
   orderedPullOutlines,
   pullColorBySpawn,
   routeDrawings,
@@ -39,7 +41,9 @@ function PlannerMapSceneController({
   selectedSpawnIds,
   setHoveredSpawnId,
   draftDrawing,
+  movePendingSticker,
   addNote,
+  placeSticker,
   appendDraftPoint,
   openContextMenu,
   setActiveDungeonAsset,
@@ -59,6 +63,7 @@ function PlannerMapSceneController({
     clientY: number
     spawnId: SpawnId
   }) => void
+  drawTool: ReturnType<typeof selectDrawTool>
   orderedPullOutlines: Array<{
     pullId: string
     color: string
@@ -71,7 +76,12 @@ function PlannerMapSceneController({
   selectedSpawnIds: ReadonlySet<SpawnId>
   setHoveredSpawnId: (spawnId: SpawnId | null) => void
   draftDrawing: Point[]
+  movePendingSticker?: (point: Point) => boolean
   addNote: (point: Point, text?: string) => void
+  placeSticker: (
+    kind: Exclude<ReturnType<typeof selectDrawTool>, "line">,
+    position: Point,
+  ) => void
   appendDraftPoint: (point: Point) => void
   openContextMenu: (payload: {
     clientX: number
@@ -92,7 +102,10 @@ function PlannerMapSceneController({
     map,
     isLoaded,
     mode,
+    drawTool,
+    movePendingSticker,
     addNote,
+    placeSticker,
     appendDraftPoint,
     openContextMenu,
   })

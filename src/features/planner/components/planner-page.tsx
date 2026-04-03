@@ -28,13 +28,21 @@ import {
   Plus,
   Redo2,
   Route,
-  Shapes,
   StickyNote,
   Trash2,
   Undo2,
 } from "lucide-react"
 import { useNavigate } from "@tanstack/react-router"
-import { type ComponentProps, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from "react"
+import {
+  type ComponentProps,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -78,6 +86,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { PlannerMap } from "@/features/planner/components/planner-map"
+import { PlannerDrawingBar } from "@/features/planner/components/planner-drawing-bar"
 import { dungeons } from "@/features/planner/data/dungeons"
 import { plannerSampleRoutes } from "@/features/planner/data/sample-routes"
 import {
@@ -102,6 +111,7 @@ import {
   selectActiveDungeon,
   selectActiveRoute,
   selectDraftDrawing,
+  selectDrawTool,
   selectDungeonKey,
   selectMode,
   selectSelectedPullId,
@@ -311,9 +321,7 @@ function SortablePullItem({
         className="z-[700] max-w-80 border border-border bg-card px-3 py-2 text-foreground shadow-2xl ring-1 ring-black/20 [&>svg]:hidden"
       >
         <div className="space-y-1.5">
-          <div className="font-medium">
-            {pull.label || `Pull ${index + 1}`}
-          </div>
+          <div className="font-medium">{pull.label || `Pull ${index + 1}`}</div>
           <div className="space-y-0.5 text-muted-foreground">
             <div>Pull Forces: {formatEnemyForces(pullSummary.forces)}</div>
             <div>
@@ -336,7 +344,11 @@ function SortablePullItem({
   )
 }
 
-export function PlannerPage({ sharedRouteId = null }: { sharedRouteId?: string | null } = {}) {
+export function PlannerPage({
+  sharedRouteId = null,
+}: {
+  sharedRouteId?: string | null
+} = {}) {
   const navigate = useNavigate()
   const hydrated = usePlannerStore((state) => state.hydrated)
   const hydrate = usePlannerStore((state) => state.hydrate)
@@ -364,21 +376,22 @@ export function PlannerPage({ sharedRouteId = null }: { sharedRouteId?: string |
   )
   const reorderPull = usePlannerStore((state) => state.reorderPull)
   const setMode = usePlannerStore((state) => state.setMode)
+  const setDrawTool = usePlannerStore((state) => state.setDrawTool)
   const updateNote = usePlannerStore((state) => state.updateNote)
   const deleteNote = usePlannerStore((state) => state.deleteNote)
-  const commitDraftDrawing = usePlannerStore(
-    (state) => state.commitDraftDrawing,
-  )
   const cancelDraftDrawing = usePlannerStore(
     (state) => state.cancelDraftDrawing,
   )
   const importSharedRoute = usePlannerStore((state) => state.importSharedRoute)
-  const setActiveRouteShareId = usePlannerStore((state) => state.setActiveRouteShareId)
+  const setActiveRouteShareId = usePlannerStore(
+    (state) => state.setActiveRouteShareId,
+  )
   const dungeon = usePlannerStore((state) => selectActiveDungeon(state.present))
   const route = usePlannerStore((state) => selectActiveRoute(state.present))
   const routes = usePlannerStore((state) => state.present.routes)
   const dungeonKey = usePlannerStore((state) => selectDungeonKey(state.present))
   const mode = usePlannerStore((state) => selectMode(state.present))
+  const drawTool = usePlannerStore((state) => selectDrawTool(state.present))
   const draftDrawing = usePlannerStore((state) =>
     selectDraftDrawing(state.present),
   )
@@ -419,6 +432,7 @@ export function PlannerPage({ sharedRouteId = null }: { sharedRouteId?: string |
   const [dialogMode, setDialogMode] = useState<DialogMode>(null)
   const [routeName, setRouteName] = useState("")
   const [importValue, setImportValue] = useState("")
+  const [drawingBarOpen, setDrawingBarOpen] = useState(false)
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
   const [loadingRouteLibraryId, setLoadingRouteLibraryId] = useState<
     string | null
@@ -427,9 +441,8 @@ export function PlannerPage({ sharedRouteId = null }: { sharedRouteId?: string |
   const [topRunsState, setTopRunsState] = useState<
     "idle" | "loading" | "ready" | "error"
   >("idle")
-  const [pullContextMenu, setPullContextMenu] = useState<PullContextMenuState>(
-    null,
-  )
+  const [pullContextMenu, setPullContextMenu] =
+    useState<PullContextMenuState>(null)
   const pullContextMenuRef = useRef<HTMLDivElement | null>(null)
   const routeLibraryOptions = useMemo<RouteLibraryOption[]>(
     () => [
@@ -538,9 +551,9 @@ export function PlannerPage({ sharedRouteId = null }: { sharedRouteId?: string |
     runPullAction(pullId, () => deleteSelectedPull())
   }
 
-  function closePullContextMenu() {
+  const closePullContextMenu = useCallback(() => {
     setPullContextMenu(null)
-  }
+  }, [])
 
   function handleOpenPullContextMenu(
     event: ReactMouseEvent<HTMLButtonElement>,
@@ -716,7 +729,7 @@ export function PlannerPage({ sharedRouteId = null }: { sharedRouteId?: string |
       window.removeEventListener("resize", closePullContextMenu)
       window.removeEventListener("scroll", closePullContextMenu, true)
     }
-  }, [pullContextMenu])
+  }, [closePullContextMenu, pullContextMenu])
 
   useEffect(() => {
     function isEditableTarget(target: EventTarget | null) {
@@ -808,6 +821,7 @@ export function PlannerPage({ sharedRouteId = null }: { sharedRouteId?: string |
       if (!ctrlOrMeta && !event.altKey && event.key.toLowerCase() === "p") {
         event.preventDefault()
         setMode("draw")
+        setDrawTool("line")
         return
       }
 
@@ -848,6 +862,7 @@ export function PlannerPage({ sharedRouteId = null }: { sharedRouteId?: string |
     route?.pulls,
     selectPull,
     selectPullRelative,
+    setDrawTool,
     setMode,
     undo,
   ])
@@ -891,7 +906,9 @@ export function PlannerPage({ sharedRouteId = null }: { sharedRouteId?: string |
         message.includes("TURSO_DATABASE_URL") ||
         message.includes("TURSO_AUTH_TOKEN")
       ) {
-        toast.error("Share links are not configured. Set the Turso environment variables.")
+        toast.error(
+          "Share links are not configured. Set the Turso environment variables.",
+        )
         return
       }
 
@@ -1134,6 +1151,20 @@ export function PlannerPage({ sharedRouteId = null }: { sharedRouteId?: string |
                       >
                         <Link2 />
                       </ToolbarActionButton>
+                      <PlannerDrawingBar
+                        isOpen={drawingBarOpen}
+                        onOpenChange={setDrawingBarOpen}
+                        activeTool={drawTool}
+                        draftPointCount={draftDrawing.length}
+                        compact
+                        side="bottom"
+                        align="start"
+                        onSelectTool={(tool) => {
+                          setMode("draw")
+                          setDrawTool(tool)
+                          setDrawingBarOpen(false)
+                        }}
+                      />
                       <div className="h-5 w-px bg-border/70" />
                       <ToolbarActionButton
                         onClick={duplicateActiveRoute}
@@ -1292,8 +1323,12 @@ export function PlannerPage({ sharedRouteId = null }: { sharedRouteId?: string |
                     </div>
                     <Tabs
                       className="flex min-h-0 flex-1 flex-col"
-                      value={mode}
-                      onValueChange={(value) => setMode(value as typeof mode)}
+                      value={mode === "notes" ? "notes" : "pulls"}
+                      onValueChange={(value) =>
+                        setMode(
+                          value as Extract<typeof mode, "pulls" | "notes">,
+                        )
+                      }
                     >
                       <TabsList variant="line" className="bg-transparent p-0">
                         <TabsTrigger value="pulls">
@@ -1303,10 +1338,6 @@ export function PlannerPage({ sharedRouteId = null }: { sharedRouteId?: string |
                         <TabsTrigger value="notes">
                           <StickyNote />
                           Notes
-                        </TabsTrigger>
-                        <TabsTrigger value="draw">
-                          <Shapes />
-                          Draw
                         </TabsTrigger>
                       </TabsList>
                       <div className="pt-2 text-xs">
@@ -1349,7 +1380,9 @@ export function PlannerPage({ sharedRouteId = null }: { sharedRouteId?: string |
                                         pullSummary={pullSummaries[index]}
                                         isActive={pull.id === selectedPullId}
                                         onSelect={selectPull}
-                                        onOpenContextMenu={handleOpenPullContextMenu}
+                                        onOpenContextMenu={
+                                          handleOpenPullContextMenu
+                                        }
                                         formatEnemyForces={formatEnemyForces}
                                       />
                                     ))}
@@ -1420,50 +1453,6 @@ export function PlannerPage({ sharedRouteId = null }: { sharedRouteId?: string |
                                 </div>
                               ))
                             )}
-                          </CardContent>
-                        </Card>
-                      </TabsContent>
-
-                      <TabsContent value="draw" className="pt-2">
-                        <Card>
-                          <CardHeader>
-                            <CardTitle>Drawings</CardTitle>
-                            <CardDescription>
-                              Switch the map to draw mode and click to place
-                              line points.
-                            </CardDescription>
-                          </CardHeader>
-                          <CardContent className="space-y-1.5">
-                            <div className="flex flex-wrap gap-1">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={commitDraftDrawing}
-                              >
-                                Finish Draft
-                              </Button>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={cancelDraftDrawing}
-                              >
-                                Cancel Draft
-                              </Button>
-                            </div>
-                            <div className="border border-dashed border-border/60 px-3 py-4 text-xs text-muted-foreground">
-                              {draftDrawing.length > 0
-                                ? `${draftDrawing.length} draft points placed. Click Finish Draft to save the line.`
-                                : "Switch the map to draw mode and click to place line points."}
-                            </div>
-                            {route.drawings.map((drawing, index) => (
-                              <div
-                                key={drawing.id}
-                                className="border border-border/60 bg-background px-3 py-2 text-xs text-muted-foreground"
-                              >
-                                Drawing {index + 1}: {drawing.points.length}{" "}
-                                points
-                              </div>
-                            ))}
                           </CardContent>
                         </Card>
                       </TabsContent>
@@ -1584,7 +1573,6 @@ export function PlannerPage({ sharedRouteId = null }: { sharedRouteId?: string |
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
     </div>
   )
 }

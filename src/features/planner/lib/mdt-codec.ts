@@ -9,7 +9,10 @@ import type {
   Point,
   SpawnId,
 } from "@/features/planner/types"
-import { dungeonsByKey, dungeonsByMdtIndex } from "@/features/planner/data/dungeons"
+import {
+  dungeonsByKey,
+  dungeonsByMdtIndex,
+} from "@/features/planner/data/dungeons"
 import { createId } from "@/features/planner/lib/ids"
 import { getPullColor } from "@/features/planner/lib/pull-colors"
 
@@ -34,7 +37,12 @@ function drawingToMdtPolygon(drawing: PlannerDrawing): MdtPolygon {
   drawing.points.forEach((point) => {
     const current = pointToMdt(point)
     if (previous) {
-      segments.push(String(previous[0]), String(previous[1]), String(current[0]), String(current[1]))
+      segments.push(
+        String(previous[0]),
+        String(previous[1]),
+        String(current[0]),
+        String(current[1]),
+      )
     }
     previous = current
   })
@@ -45,7 +53,10 @@ function drawingToMdtPolygon(drawing: PlannerDrawing): MdtPolygon {
   }
 }
 
-function mdtPolygonToDrawing(polygon: MdtPolygon, index: number): PlannerDrawing {
+function mdtPolygonToDrawing(
+  polygon: MdtPolygon,
+  index: number,
+): PlannerDrawing {
   const points: Point[] = []
   for (let cursor = 0; cursor < polygon.l.length; cursor += 2) {
     const x = Number(polygon.l[cursor])
@@ -96,7 +107,9 @@ export function plannerRouteToMdtRoute(route: PlannerRoute): MdtRoute {
     },
     objects: [
       ...route.notes.map(noteToMdt),
-      ...route.drawings.filter((drawing) => drawing.points.length > 1).map(drawingToMdtPolygon),
+      ...route.drawings
+        .filter((drawing) => drawing.points.length > 1)
+        .map(drawingToMdtPolygon),
     ],
   }
 }
@@ -104,16 +117,20 @@ export function plannerRouteToMdtRoute(route: PlannerRoute): MdtRoute {
 export function mdtRouteToPlannerRoute(mdtRoute: MdtRoute): PlannerRoute {
   const dungeon = dungeonsByMdtIndex[mdtRoute.value.currentDungeonIdx]
   if (!dungeon) {
-    throw new Error(`Unsupported dungeon index: ${mdtRoute.value.currentDungeonIdx}`)
+    throw new Error(
+      `Unsupported dungeon index: ${mdtRoute.value.currentDungeonIdx}`,
+    )
   }
 
-  const objects = Array.isArray(mdtRoute.objects) ? mdtRoute.objects : Object.values(mdtRoute.objects)
+  const objects = Array.isArray(mdtRoute.objects)
+    ? mdtRoute.objects
+    : Object.values(mdtRoute.objects)
   const pulls = mdtRoute.value.pulls.map((pull, index) => ({
     id: createId("pull"),
     label: `Pull ${index + 1}`,
     color: pull.color ? `#${pull.color}` : getPullColor(index),
-    spawns: Object.entries(pull)
-      .flatMap(([enemyIndexOrColor, spawnIndexes]) => {
+    spawns: Object.entries(pull).flatMap(
+      ([enemyIndexOrColor, spawnIndexes]) => {
         if (!Array.isArray(spawnIndexes)) {
           return []
         }
@@ -121,11 +138,13 @@ export function mdtRouteToPlannerRoute(mdtRoute: MdtRoute): PlannerRoute {
         const enemyIndex = Number(enemyIndexOrColor)
         return spawnIndexes.flatMap((spawnIndex) => {
           const match = dungeon.mobSpawnsList.find(
-            ({ mob, spawn }) => mob.enemyIndex === enemyIndex && spawn.idx === spawnIndex,
+            ({ mob, spawn }) =>
+              mob.enemyIndex === enemyIndex && spawn.idx === spawnIndex,
           )
           return match ? [match.spawn.id] : []
         })
-      }),
+      },
+    ),
   }))
 
   const notes = objects
@@ -150,9 +169,17 @@ export function mdtRouteToPlannerRoute(mdtRoute: MdtRoute): PlannerRoute {
     pulls:
       pulls.length > 0
         ? pulls
-        : [{ id: createId("pull"), label: "Pull 1", color: getPullColor(0), spawns: [] }],
+        : [
+            {
+              id: createId("pull"),
+              label: "Pull 1",
+              color: getPullColor(0),
+              spawns: [],
+            },
+          ],
     notes,
     drawings,
+    stickers: [],
     createdAt: now,
     updatedAt: now,
   }
