@@ -85,6 +85,15 @@ export type PlannerDrawing = {
   points: Point[]
 }
 
+export type PlannerStickerKind = "bloodlust" | "warlockGate" | "stealth"
+
+export type PlannerSticker = {
+  id: string
+  kind: PlannerStickerKind
+  position: Point
+  text?: string
+}
+
 export type PlannerRoute = {
   id: string
   schemaVersion: number
@@ -93,6 +102,7 @@ export type PlannerRoute = {
   pulls: PlannerPull[]
   notes: PlannerNote[]
   drawings: PlannerDrawing[]
+  stickers: PlannerSticker[]
   createdAt: string
   updatedAt: string
   shareId?: string
@@ -111,6 +121,8 @@ export type DungeonDefinition = {
 
 export type PlannerMode = "pulls" | "notes" | "draw"
 
+export type PlannerDrawTool = "line" | PlannerStickerKind
+
 export type PlannerPresent = {
   seasonLabel: string
   dungeonKey: DungeonKey
@@ -118,6 +130,7 @@ export type PlannerPresent = {
   activeRouteId: string
   selectedPullId: string
   mode: PlannerMode
+  drawTool: PlannerDrawTool
   draftDrawing: Point[]
 }
 

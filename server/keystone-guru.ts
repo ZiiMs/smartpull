@@ -368,6 +368,7 @@ export async function importKeystoneGuruRoute(
     pulls: createPlannerPulls(dungeon, routeContext, mappingData),
     notes: [],
     drawings: [],
+    stickers: [],
     createdAt: now,
     updatedAt: now,
   }

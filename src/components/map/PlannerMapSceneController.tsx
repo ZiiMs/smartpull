@@ -5,6 +5,7 @@ import type {
 } from "@/features/planner/components/planner-map-client"
 import type {
   selectActiveRoute,
+  selectDrawTool,
   selectMode,
 } from "@/features/planner/store/planner-store"
 import type { DungeonKey, Point } from "@/features/planner/types"
@@ -20,10 +21,13 @@ import {
 function PlannerMapSceneController({
   dungeonKey,
   mode,
+  drawTool,
   orderedPullOutlines,
   routeDrawings,
   draftDrawing,
+  movePendingSticker,
   addNote,
+  placeSticker,
   appendDraftPoint,
   openContextMenu,
   setActiveDungeonAsset,
@@ -34,6 +38,7 @@ function PlannerMapSceneController({
 }: {
   dungeonKey: DungeonKey
   mode: ReturnType<typeof selectMode>
+  drawTool: ReturnType<typeof selectDrawTool>
   orderedPullOutlines: Array<{
     pullId: string
     color: string
@@ -42,7 +47,12 @@ function PlannerMapSceneController({
   }>
   routeDrawings: NonNullable<ReturnType<typeof selectActiveRoute>>["drawings"]
   draftDrawing: Point[]
+  movePendingSticker?: (point: Point) => boolean
   addNote: (point: Point, text?: string) => void
+  placeSticker: (
+    kind: Exclude<ReturnType<typeof selectDrawTool>, "line">,
+    position: Point,
+  ) => void
   appendDraftPoint: (point: Point) => void
   openContextMenu: (payload: {
     clientX: number
@@ -62,7 +72,10 @@ function PlannerMapSceneController({
     map,
     isLoaded,
     mode,
+    drawTool,
+    movePendingSticker,
     addNote,
+    placeSticker,
     appendDraftPoint,
     openContextMenu,
   })

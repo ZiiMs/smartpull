@@ -225,4 +225,44 @@ describe("planner-store", () => {
       text: "New note",
     })
   })
+
+  it("tracks stickers separately from line drafting", () => {
+    const position: [number, number] = [18, 64]
+
+    usePlannerStore.getState().setMode("draw")
+    usePlannerStore.getState().setDrawTool("bloodlust")
+    usePlannerStore.getState().appendDraftPoint(position)
+    usePlannerStore
+      .getState()
+      .addSticker("bloodlust", position, "lust on pull 3")
+
+    const route = selectActiveRoute(usePlannerStore.getState().present)
+    expect(usePlannerStore.getState().present.draftDrawing).toEqual([])
+    expect(route?.stickers[0]).toMatchObject({
+      kind: "bloodlust",
+      position,
+      text: "lust on pull 3",
+    })
+  })
+
+  it("moves stickers in place", () => {
+    const origin: [number, number] = [10, 20]
+    const destination: [number, number] = [40, 60]
+
+    usePlannerStore.getState().addSticker("stealth", origin)
+    const route = selectActiveRoute(usePlannerStore.getState().present)
+    const stickerId = route?.stickers[0]?.id
+
+    if (!stickerId) {
+      throw new Error("Expected a sticker to exist before moving it")
+    }
+
+    usePlannerStore.getState().moveSticker(stickerId, destination)
+
+    const updatedRoute = selectActiveRoute(usePlannerStore.getState().present)
+    expect(updatedRoute?.stickers[0]).toMatchObject({
+      id: stickerId,
+      position: destination,
+    })
+  })
 })

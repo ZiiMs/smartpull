@@ -8,7 +8,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
-import type { MobSpawn, Point } from "@/features/planner/types"
+import type {
+  MobSpawn,
+  PlannerStickerKind,
+  Point,
+} from "@/features/planner/types"
+import { plannerStickerMeta } from "@/features/planner/lib/stickers"
 import { useEffect, useState } from "react"
 
 function formatPositionLabel(position: Point | null) {
@@ -21,34 +26,41 @@ function formatPositionLabel(position: Point | null) {
 
 export function PlannerNoteDialog({
   mobSpawn,
+  stickerKind = null,
   open,
   position,
   onCreateNote,
   onOpenChange,
 }: {
   mobSpawn: MobSpawn | null
+  stickerKind?: PlannerStickerKind | null
   open: boolean
   position: Point | null
   onCreateNote: (text: string) => void
   onOpenChange: (open: boolean) => void
 }) {
   const [text, setText] = useState("")
+  const stickerMeta = stickerKind ? plannerStickerMeta[stickerKind] : null
 
   useEffect(() => {
     if (open) {
       setText("")
     }
-  }, [open, position, mobSpawn?.spawn.id])
+  }, [open])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="z-[950] sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Add Note</DialogTitle>
+          <DialogTitle>
+            {stickerMeta ? `Add ${stickerMeta.name} Note` : "Add Note"}
+          </DialogTitle>
           <DialogDescription>
-            {mobSpawn
-              ? `Create a note at ${mobSpawn.mob.name}.`
-              : "Create a note at the selected map location."}
+            {stickerMeta
+              ? `Add text for the ${stickerMeta.name.toLowerCase()} marker at the selected map location.`
+              : mobSpawn
+                ? `Create a note at ${mobSpawn.mob.name}.`
+                : "Create a note at the selected map location."}
             {position ? ` Position: ${formatPositionLabel(position)}.` : null}
           </DialogDescription>
         </DialogHeader>
@@ -66,9 +78,11 @@ export function PlannerNoteDialog({
             autoFocus
             rows={5}
             placeholder={
-              mobSpawn
-                ? `Add a note for ${mobSpawn.mob.name}`
-                : "Add a note for this location"
+              stickerMeta
+                ? `Add text for ${stickerMeta.name.toLowerCase()}`
+                : mobSpawn
+                  ? `Add a note for ${mobSpawn.mob.name}`
+                  : "Add a note for this location"
             }
           />
 
@@ -80,7 +94,9 @@ export function PlannerNoteDialog({
             >
               Cancel
             </Button>
-            <Button type="submit">Add Note</Button>
+            <Button type="submit">
+              {stickerMeta ? "Add Sticker" : "Add Note"}
+            </Button>
           </DialogFooter>
         </form>
       </DialogContent>
