@@ -1,4 +1,8 @@
 import type { PlannerRoute } from "@/features/planner/types"
+import {
+  exportMdtRoute as exportMdtRouteServer,
+  importMdtRoute as importMdtRouteServer,
+} from "@/features/planner/lib/mdt-server"
 
 type ExportMdtPayload = {
   route: PlannerRoute
@@ -8,30 +12,10 @@ type ImportMdtPayload = {
   text: string
 }
 
-async function requestMdt<TResponse>(
-  path: string,
-  payload: ExportMdtPayload | ImportMdtPayload,
-  parseResponse: (response: Response) => Promise<TResponse>,
-): Promise<TResponse> {
-  const response = await fetch(path, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
-  })
-
-  if (!response.ok) {
-    throw new Error(await response.text())
-  }
-
-  return parseResponse(response)
-}
-
 export function exportMdtRoute(payload: ExportMdtPayload) {
-  return requestMdt("/api/mdt/export", payload, (response) => response.text())
+  return exportMdtRouteServer({ data: payload })
 }
 
 export function importMdtRoute(payload: ImportMdtPayload) {
-  return requestMdt("/api/mdt/import", payload, (response) => response.json() as Promise<PlannerRoute>)
+  return importMdtRouteServer({ data: payload })
 }
