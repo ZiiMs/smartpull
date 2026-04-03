@@ -92,7 +92,7 @@ import { plannerSampleRoutes } from "@/features/planner/data/sample-routes"
 import {
   exportMdtRoute,
   importMdtRoute,
-} from "@/features/planner/lib/mdt-server"
+} from "@/features/planner/lib/mdt-client"
 import {
   countForSpawns,
   summarizeSpawnsByMob,
@@ -877,7 +877,7 @@ export function PlannerPage({
 
   async function handleCopyMdt() {
     try {
-      const value = await exportMdtRoute({ data: { route } })
+      const value = await exportMdtRoute({ route })
       await navigator.clipboard.writeText(value)
       toast.info("MDT string copied to clipboard.")
     } catch {
@@ -918,7 +918,7 @@ export function PlannerPage({
 
   async function handleImportConfirm() {
     try {
-      const imported = await importMdtRoute({ data: { text: importValue } })
+      const imported = await importMdtRoute({ text: importValue })
       importSharedRoute(imported)
       setImportValue("")
       setDialogMode(null)
@@ -949,7 +949,7 @@ export function PlannerPage({
     setLoadingRouteLibraryId(routeId)
 
     try {
-      const imported = await importMdtRoute({ data: { text: mdt } })
+      const imported = await importMdtRoute({ text: mdt })
       importSharedRoute({
         ...imported,
         name: routeName,
