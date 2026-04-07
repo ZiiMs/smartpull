@@ -15,6 +15,7 @@ import type {
   PlannerPull,
   PlannerRoute,
   PlannerSnapshot,
+  PlannerStickerLabelPosition,
   Point,
   SpawnId,
 } from "@/features/planner/types"
@@ -129,6 +130,10 @@ function groupedSpawnIds(
 function normalizeRoute(route: PlannerRoute) {
   route.pulls = normalizePulls(route.pulls)
   route.stickers ??= []
+  route.stickers = route.stickers.map((sticker) => ({
+    ...sticker,
+    labelPosition: sticker.labelPosition ?? "right",
+  }))
 }
 
 function sanitizeRoute(route: PlannerRoute) {
@@ -246,7 +251,15 @@ type PlannerStore = PlannerSnapshot & {
     position: Point,
     text?: string,
   ) => void
-  moveSticker: (stickerId: string, position: Point) => void
+  updateSticker: (
+    stickerId: string,
+    updates: { labelPosition: PlannerStickerLabelPosition; text: string },
+  ) => void
+  moveSticker: (
+    stickerId: string,
+    position: Point,
+    options?: { recordHistory?: boolean },
+  ) => void
   deleteSticker: (stickerId: string) => void
   importSharedRoute: (route: PlannerRoute) => void
   setActiveRouteShareId: (shareId: string) => void
@@ -780,10 +793,23 @@ export const usePlannerStore = create<PlannerStore>((set) => {
           kind,
           position,
           text: text?.trim() || undefined,
+          labelPosition: "right",
         })
         touchRoute(route)
       }),
-    moveSticker: (stickerId, position) =>
+    updateSticker: (stickerId, updates) =>
+      commit((draft) => {
+        const route = getActiveRoute(draft)
+        const sticker = route?.stickers.find((item) => item.id === stickerId)
+        if (!sticker) {
+          return
+        }
+
+        sticker.text = updates.text.trim() || undefined
+        sticker.labelPosition = updates.labelPosition
+        touchRoute(route)
+      }),
+    moveSticker: (stickerId, position, options) =>
       commit((draft) => {
         const route = getActiveRoute(draft)
         if (!route) {
@@ -797,7 +823,7 @@ export const usePlannerStore = create<PlannerStore>((set) => {
 
         sticker.position = position
         touchRoute(route)
-      }),
+      }, options?.recordHistory ?? true),
     deleteSticker: (stickerId) =>
       commit((draft) => {
         const route = getActiveRoute(draft)

@@ -87,11 +87,19 @@ export type PlannerDrawing = {
 
 export type PlannerStickerKind = "bloodlust" | "warlockGate" | "stealth"
 
+export type PlannerStickerLabelPosition =
+  | "none"
+  | "top"
+  | "right"
+  | "bottom"
+  | "left"
+
 export type PlannerSticker = {
   id: string
   kind: PlannerStickerKind
   position: Point
   text?: string
+  labelPosition?: PlannerStickerLabelPosition
 }
 
 export type PlannerRoute = {
