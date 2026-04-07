@@ -46,6 +46,7 @@ function PlannerMapSceneController({
   placeSticker,
   appendDraftPoint,
   openContextMenu,
+  setPointerPoint,
   setActiveDungeonAsset,
   setActiveSceneDungeonKey,
   setLoadPhase,
@@ -88,6 +89,7 @@ function PlannerMapSceneController({
     clientY: number
     point: Point
   }) => void
+  setPointerPoint?: (point: Point | null) => void
   setActiveDungeonAsset: (value: ActiveDungeonAsset | null) => void
   setActiveSceneDungeonKey: (value: string | null) => void
   setLoadPhase: (value: PlannerMapLoadPhase) => void
@@ -108,6 +110,7 @@ function PlannerMapSceneController({
     placeSticker,
     appendDraftPoint,
     openContextMenu,
+    setPointerPoint,
   })
   usePlannerMapSceneAsset({
     map,

@@ -163,6 +163,7 @@ export function usePlannerMapInteraction({
   placeSticker,
   appendDraftPoint,
   openContextMenu,
+  setPointerPoint,
 }: {
   map: maplibregl.Map | null
   isLoaded: boolean
@@ -180,6 +181,7 @@ export function usePlannerMapInteraction({
     clientY: number
     point: Point
   }) => void
+  setPointerPoint?: (point: Point | null) => void
 }) {
   useEffect(() => {
     if (!map || !isLoaded) {
@@ -224,12 +226,24 @@ export function usePlannerMapInteraction({
       })
     }
 
+    const handleMouseMove = (event: maplibregl.MapMouseEvent) => {
+      setPointerPoint?.(lngLatToPoint(event.lngLat))
+    }
+
+    const clearPointerPoint = () => {
+      setPointerPoint?.(null)
+    }
+
     map.on("click", handleMapClick)
     map.on("contextmenu", handleMapContextMenu)
+    map.on("mousemove", handleMouseMove)
+    map.on("mouseout", clearPointerPoint)
 
     return () => {
       map.off("click", handleMapClick)
       map.off("contextmenu", handleMapContextMenu)
+      map.off("mousemove", handleMouseMove)
+      map.off("mouseout", clearPointerPoint)
     }
   }, [
     addNote,
@@ -241,6 +255,7 @@ export function usePlannerMapInteraction({
     movePendingSticker,
     openContextMenu,
     placeSticker,
+    setPointerPoint,
   ])
 }
 

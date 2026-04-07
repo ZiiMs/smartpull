@@ -8,6 +8,7 @@ export function PlannerMapContextMenu({
   sticker,
   onAddNote,
   onDeleteSticker,
+  onEditSticker,
   onMoveSticker,
   onMobInfo,
   position,
@@ -19,6 +20,7 @@ export function PlannerMapContextMenu({
   sticker: PlannerSticker | null
   onAddNote: () => void
   onDeleteSticker: () => void
+  onEditSticker: () => void
   onMoveSticker: () => void
   onMobInfo: () => void
   position: Point
@@ -72,6 +74,13 @@ export function PlannerMapContextMenu({
       {sticker ? (
         <>
           <div className="h-px bg-border" />
+          <button
+            type="button"
+            onClick={onEditSticker}
+            className="flex w-full items-center px-3 py-2 text-left text-xs hover:bg-accent hover:text-accent-foreground"
+          >
+            Edit Sticker Text
+          </button>
           <button
             type="button"
             onClick={onMoveSticker}

@@ -3,12 +3,26 @@ import PlannerMobHoverPopup from "@/components/map/PlannerMobHoverPopup"
 import PlannerNoteMarker from "@/components/map/PlannerNoteMarker"
 import PlannerPoiMarker from "@/components/map/PlannerPoiMarker"
 import PlannerStickerMarker from "@/components/map/PlannerStickerMarker"
-import { MapMarker, MarkerContent, Map as SharedMap } from "@/components/ui/map"
+import {
+  MapMarker,
+  MarkerContent,
+  Map as SharedMap,
+  MapRoute,
+} from "@/components/ui/map"
 import { dungeons } from "@/features/planner/data/dungeons"
+import { PlannerSelectedStickerTray } from "@/features/planner/components/planner-selected-sticker-tray"
 import { PlannerMapContextMenu } from "@/features/planner/components/planner-map-context-menu"
 import { PlannerMobInfoDialog } from "@/features/planner/components/planner-mob-info-dialog"
 import { PlannerNoteDialog } from "@/features/planner/components/planner-note-dialog"
+import {
+  clampPlannerPointToRange,
+  getPlannerPointDistance,
+  getUnpairedWarlockGate,
+  getWarlockGateConnections,
+  warlockGateMaxRange,
+} from "@/features/planner/lib/gates"
 import { plannerStickerMeta } from "@/features/planner/lib/stickers"
+import { cn } from "@/lib/utils"
 import {
   circlePolygon,
   mapCenter,
@@ -28,6 +42,8 @@ import {
 import type {
   MobSpawn,
   PlannerSticker,
+  PlannerStickerKind,
+  PlannerStickerLabelPosition,
   Point,
   SpawnId,
 } from "@/features/planner/types"
@@ -83,9 +99,12 @@ type PendingMapAnnotation =
       position: Point
     }
   | {
-      kind: "sticker"
+      kind: "edit-sticker"
+      stickerId: string
       stickerKind: PlannerSticker["kind"]
+      labelPosition: PlannerStickerLabelPosition
       position: Point
+      text: string
     }
 function getCentroid(points: Point[]) {
   const total = points.reduce<Point>(
@@ -266,10 +285,13 @@ function queueIdleTask(task: () => void) {
 }
 
 export function PlannerMapClient() {
+  const setMode = usePlannerStore((state) => state.setMode)
+  const setDrawTool = usePlannerStore((state) => state.setDrawTool)
   const toggleSpawn = usePlannerStore((state) => state.toggleSpawn)
   const appendDraftPoint = usePlannerStore((state) => state.appendDraftPoint)
   const addNote = usePlannerStore((state) => state.addNote)
   const addSticker = usePlannerStore((state) => state.addSticker)
+  const updateSticker = usePlannerStore((state) => state.updateSticker)
   const moveSticker = usePlannerStore((state) => state.moveSticker)
   const deleteSticker = usePlannerStore((state) => state.deleteSticker)
   const dungeon = usePlannerStore((state) => selectActiveDungeon(state.present))
@@ -302,6 +324,20 @@ export function PlannerMapClient() {
   const [modifierMode, setModifierMode] = useState<"default" | "ctrl" | "alt">(
     "default",
   )
+  const [pointerPreview, setPointerPreview] = useState<{
+    inside: boolean
+    x: number
+    y: number
+  }>({
+    inside: false,
+    x: 0,
+    y: 0,
+  })
+  const [mapPointerPoint, setMapPointerPoint] = useState<Point | null>(null)
+  const [dragPreview, setDragPreview] = useState<{
+    stickerId: string
+    position: Point
+  } | null>(null)
   const mapContextMenuRef = useRef<HTMLDivElement | null>(null)
 
   const selectedPull = useMemo(
@@ -355,7 +391,6 @@ export function PlannerMapClient() {
     ],
     [pullOutlines, selectedPull?.id],
   )
-
   const sceneMounted = activeSceneDungeonKey === dungeon.key && !mapError
   const sceneReady = loadPhase === "ready"
   const hoveredMobSpawn = hoveredSpawnId
@@ -365,6 +400,189 @@ export function PlannerMapClient() {
     ? routeVisualState.pullIndexBySpawn.get(hoveredSpawnId)
     : undefined
   const hoveredGroup = hoveredMobSpawn?.spawn.group ?? null
+  const pendingStickerKind = useMemo<PlannerStickerKind | null>(() => {
+    if (!pendingStickerMoveId) {
+      return null
+    }
+
+    return (
+      route?.stickers.find((item) => item.id === pendingStickerMoveId)?.kind ??
+      null
+    )
+  }, [pendingStickerMoveId, route?.stickers])
+  const activeStickerKind =
+    pendingStickerKind ??
+    (mode === "draw" && drawTool !== "line" ? drawTool : null)
+  const showStickerCursorPreview =
+    activeStickerKind !== null && pointerPreview.inside && sceneMounted
+  const baseGateConnections = useMemo(
+    () => getWarlockGateConnections(route?.stickers ?? []),
+    [route?.stickers],
+  )
+  const baseGateConnectionLookup = useMemo(() => {
+    const lookup = new Map<string, (typeof baseGateConnections)[number]>()
+
+    baseGateConnections.forEach((connection) => {
+      lookup.set(connection.originId, connection)
+      lookup.set(connection.destinationId, connection)
+    })
+
+    return lookup
+  }, [baseGateConnections])
+  const clampedPendingMovePoint = useMemo(() => {
+    if (
+      !pendingStickerMoveId ||
+      pendingStickerKind !== "warlockGate" ||
+      !mapPointerPoint
+    ) {
+      return mapPointerPoint
+    }
+
+    const pair = baseGateConnectionLookup.get(pendingStickerMoveId)
+    if (!pair) {
+      return mapPointerPoint
+    }
+
+    const originPosition =
+      pair.originId === pendingStickerMoveId
+        ? pair.destinationPosition
+        : pair.originPosition
+
+    return clampPlannerPointToRange(originPosition, mapPointerPoint)
+  }, [
+    baseGateConnectionLookup,
+    mapPointerPoint,
+    pendingStickerKind,
+    pendingStickerMoveId,
+  ])
+  const gatePositionOverrides = useMemo(() => {
+    const overrides = new Map<string, Point>()
+
+    if (dragPreview) {
+      overrides.set(dragPreview.stickerId, dragPreview.position)
+    } else if (
+      pendingStickerMoveId &&
+      pendingStickerKind === "warlockGate" &&
+      clampedPendingMovePoint
+    ) {
+      overrides.set(pendingStickerMoveId, clampedPendingMovePoint)
+    }
+
+    return overrides
+  }, [
+    clampedPendingMovePoint,
+    dragPreview,
+    pendingStickerKind,
+    pendingStickerMoveId,
+  ])
+  const gateConnections = useMemo(
+    () => getWarlockGateConnections(route?.stickers ?? [], gatePositionOverrides),
+    [gatePositionOverrides, route?.stickers],
+  )
+  const invalidGateStickerIds = useMemo(() => {
+    const stickerIds = new Set<string>()
+
+    gateConnections.forEach((connection) => {
+      if (connection.withinRange) {
+        return
+      }
+
+      stickerIds.add(connection.originId)
+      stickerIds.add(connection.destinationId)
+    })
+
+    return stickerIds
+  }, [gateConnections])
+  const gateConnectionLookup = useMemo(() => {
+    const lookup = new Map<string, (typeof gateConnections)[number]>()
+
+    gateConnections.forEach((connection) => {
+      lookup.set(connection.originId, connection)
+      lookup.set(connection.destinationId, connection)
+    })
+
+    return lookup
+  }, [gateConnections])
+  const stickerById = useMemo(
+    () => new Map((route?.stickers ?? []).map((sticker) => [sticker.id, sticker])),
+    [route?.stickers],
+  )
+  const renderedStickers = useMemo(
+    () =>
+      route?.stickers.filter((sticker) => sticker.id !== pendingStickerMoveId) ??
+      [],
+    [pendingStickerMoveId, route?.stickers],
+  )
+  const gatePreviewGuide = useMemo(() => {
+    if (!sceneMounted || activeStickerKind !== "warlockGate") {
+      return null
+    }
+
+    if (pendingStickerMoveId && pendingStickerKind === "warlockGate") {
+      const previewPosition = gatePositionOverrides.get(pendingStickerMoveId)
+      const pair = gateConnectionLookup.get(pendingStickerMoveId)
+      if (!previewPosition || !pair) {
+        return null
+      }
+
+      const originPosition =
+        pair.originId === pendingStickerMoveId
+          ? pair.destinationPosition
+          : pair.originPosition
+      const distance = getPlannerPointDistance(originPosition, previewPosition)
+
+      return {
+        originPosition,
+        previewPosition,
+        withinRange: distance <= warlockGateMaxRange,
+      }
+    }
+
+    if (dragPreview) {
+      const pair = gateConnectionLookup.get(dragPreview.stickerId)
+      if (!pair) {
+        return null
+      }
+
+      const originPosition =
+        pair.originId === dragPreview.stickerId
+          ? pair.destinationPosition
+          : pair.originPosition
+      const distance = getPlannerPointDistance(originPosition, dragPreview.position)
+
+      return {
+        originPosition,
+        previewPosition: dragPreview.position,
+        withinRange: distance <= warlockGateMaxRange,
+      }
+    }
+
+    const unpairedGate = getUnpairedWarlockGate(route?.stickers ?? [])
+    if (!unpairedGate || !mapPointerPoint) {
+      return null
+    }
+
+    const previewPosition = clampPlannerPointToRange(
+      unpairedGate.position,
+      mapPointerPoint,
+    )
+
+    return {
+      originPosition: unpairedGate.position,
+      previewPosition,
+      withinRange: true,
+    }
+  }, [
+    activeStickerKind,
+    dragPreview,
+    gateConnectionLookup,
+    gatePositionOverrides,
+    mapPointerPoint,
+    pendingStickerKind,
+    pendingStickerMoveId,
+    route?.stickers,
+    sceneMounted,
+  ])
 
   function loadingMessage() {
     if (loadPhase === "switching-scene") {
@@ -521,11 +739,24 @@ export function PlannerMapClient() {
         return false
       }
 
-      moveSticker(pendingStickerMoveId, point)
+      let nextPosition = point
+      if (pendingStickerKind === "warlockGate") {
+        const pair = baseGateConnectionLookup.get(pendingStickerMoveId)
+        if (pair) {
+          const originPosition =
+            pair.originId === pendingStickerMoveId
+              ? pair.destinationPosition
+              : pair.originPosition
+          nextPosition = clampPlannerPointToRange(originPosition, point)
+        }
+      }
+
+      moveSticker(pendingStickerMoveId, nextPosition)
       setPendingStickerMoveId(null)
+      setMapPointerPoint(null)
       return true
     },
-    [moveSticker, pendingStickerMoveId],
+    [baseGateConnectionLookup, moveSticker, pendingStickerKind, pendingStickerMoveId],
   )
 
   const handleOpenAddNoteDialog = useCallback(() => {
@@ -542,7 +773,13 @@ export function PlannerMapClient() {
   }, [closeMapContextMenu, mapContextMenu])
 
   const handleCreateAnnotation = useCallback(
-    (text: string) => {
+    ({
+      text,
+      labelPosition,
+    }: {
+      text: string
+      labelPosition: PlannerStickerLabelPosition
+    }) => {
       if (!pendingAnnotation) {
         return
       }
@@ -550,28 +787,108 @@ export function PlannerMapClient() {
       if (pendingAnnotation.kind === "note") {
         addNote(pendingAnnotation.position, text)
       } else {
-        addSticker(
-          pendingAnnotation.stickerKind,
-          pendingAnnotation.position,
+        updateSticker(pendingAnnotation.stickerId, {
           text,
-        )
+          labelPosition,
+        })
       }
 
       setPendingAnnotation(null)
     },
-    [addNote, addSticker, pendingAnnotation],
+    [addNote, pendingAnnotation, updateSticker],
   )
 
   const handlePlaceSticker = useCallback(
     (kind: PlannerSticker["kind"], position: Point) => {
-      setPendingAnnotation({
-        kind: "sticker",
-        stickerKind: kind,
-        position,
-      })
+      if (kind === "warlockGate") {
+        const unpairedGate = getUnpairedWarlockGate(route?.stickers ?? [])
+        if (unpairedGate) {
+          addSticker(
+            kind,
+            clampPlannerPointToRange(unpairedGate.position, position),
+            plannerStickerMeta[kind].defaultText,
+          )
+          setDrawTool("line")
+          setMode("pulls")
+          return
+        }
+      }
+
+      addSticker(kind, position, plannerStickerMeta[kind].defaultText)
+      setDrawTool("line")
+      setMode("pulls")
     },
-    [],
+    [addSticker, route?.stickers, setDrawTool, setMode],
   )
+
+  const handleShiftDragPreview = useCallback(
+    (sticker: PlannerSticker, position: Point | null) => {
+      if (sticker.kind !== "warlockGate") {
+        return
+      }
+
+      const pair = baseGateConnectionLookup.get(sticker.id)
+      const nextPosition =
+        pair && position
+          ? clampPlannerPointToRange(
+              pair.originId === sticker.id
+                ? pair.destinationPosition
+                : pair.originPosition,
+              position,
+            )
+          : position
+
+      setDragPreview(
+        nextPosition
+          ? {
+              stickerId: sticker.id,
+              position: nextPosition,
+            }
+          : null,
+      )
+    },
+    [baseGateConnectionLookup],
+  )
+
+  const handleShiftDragSticker = useCallback(
+    (sticker: PlannerSticker, position: Point) => {
+      let nextPosition = position
+
+      if (sticker.kind === "warlockGate") {
+        const pair = baseGateConnectionLookup.get(sticker.id)
+        if (pair) {
+          nextPosition = clampPlannerPointToRange(
+            pair.originId === sticker.id
+              ? pair.destinationPosition
+              : pair.originPosition,
+            position,
+          )
+        }
+      }
+
+      moveSticker(sticker.id, nextPosition)
+    },
+    [baseGateConnectionLookup, moveSticker],
+  )
+
+  const handleOpenEditStickerDialog = useCallback(() => {
+    if (!mapContextMenu?.sticker) {
+      return
+    }
+
+    setPendingAnnotation({
+      kind: "edit-sticker",
+      stickerId: mapContextMenu.sticker.id,
+      stickerKind: mapContextMenu.sticker.kind,
+      labelPosition: mapContextMenu.sticker.labelPosition ?? "right",
+      position: mapContextMenu.sticker.position,
+      text:
+        mapContextMenu.sticker.text ??
+        plannerStickerMeta[mapContextMenu.sticker.kind].defaultText ??
+        plannerStickerMeta[mapContextMenu.sticker.kind].chipLabel,
+    })
+    closeMapContextMenu()
+  }, [closeMapContextMenu, mapContextMenu])
 
   const handleOpenMobInfoDialog = useCallback(() => {
     if (!mapContextMenu?.mobSpawn) {
@@ -581,6 +898,13 @@ export function PlannerMapClient() {
     setInfoMobSpawn(mapContextMenu.mobSpawn)
     closeMapContextMenu()
   }, [closeMapContextMenu, mapContextMenu])
+
+  const handleExitStickerMode = useCallback(() => {
+    setPendingStickerMoveId(null)
+    setPendingAnnotation(null)
+    setDrawTool("line")
+    setMode("pulls")
+  }, [setDrawTool, setMode])
 
   useEffect(() => {
     if (!mapContextMenu) {
@@ -638,7 +962,28 @@ export function PlannerMapClient() {
   }
 
   return (
-    <div className="relative h-full w-full bg-background">
+    <div
+      className={activeStickerKind ? "relative h-full w-full cursor-none bg-background" : "relative h-full w-full bg-background"}
+      onPointerEnter={(event) => {
+        const bounds = event.currentTarget.getBoundingClientRect()
+        setPointerPreview({
+          inside: true,
+          x: event.clientX - bounds.left,
+          y: event.clientY - bounds.top,
+        })
+      }}
+      onPointerMove={(event) => {
+        const bounds = event.currentTarget.getBoundingClientRect()
+        setPointerPreview({
+          inside: true,
+          x: event.clientX - bounds.left,
+          y: event.clientY - bounds.top,
+        })
+      }}
+      onPointerLeave={() => {
+        setPointerPreview((current) => ({ ...current, inside: false }))
+      }}
+    >
       <SharedMap
         className="planner-map h-full w-full bg-background"
         styles={{ dark: blankStyle, light: blankStyle }}
@@ -650,6 +995,7 @@ export function PlannerMapClient() {
         dragRotate={false}
         pitchWithRotate={false}
         doubleClickZoom={false}
+        boxZoom={false}
         touchPitch={false}
       >
         <PlannerMapSceneController
@@ -672,6 +1018,7 @@ export function PlannerMapClient() {
           placeSticker={handlePlaceSticker}
           appendDraftPoint={appendDraftPoint}
           openContextMenu={openMapContextMenu}
+          setPointerPoint={setMapPointerPoint}
           setActiveDungeonAsset={setActiveDungeonAsset}
           setActiveSceneDungeonKey={setActiveSceneDungeonKey}
           setLoadPhase={setLoadPhase}
@@ -686,6 +1033,126 @@ export function PlannerMapClient() {
             pullIndex={hoveredPullIndex}
             totalEnemyForces={dungeon.mdt.totalCount}
           />
+        ) : null}
+
+        {sceneMounted
+          ? gateConnections.map((connection) => (
+              <div key={connection.id}>
+                <MapRoute
+                  id={`${connection.id}-base`}
+                  coordinates={[
+                    pointToLngLat(connection.originPosition),
+                    pointToLngLat(connection.destinationPosition),
+                  ]}
+                  color={connection.withinRange ? "#09090b" : "#2b0a0e"}
+                  width={connection.withinRange ? 6 : 7}
+                  opacity={connection.withinRange ? 0.32 : 0.55}
+                  interactive={false}
+                />
+                <MapRoute
+                  id={`${connection.id}-gate`}
+                  coordinates={[
+                    pointToLngLat(connection.originPosition),
+                    pointToLngLat(connection.destinationPosition),
+                  ]}
+                  color={connection.withinRange ? "#c084fc" : "#f87171"}
+                  width={connection.withinRange ? 3 : 3.5}
+                  opacity={0.95}
+                  dashArray={[1.2, 2.1]}
+                  interactive={false}
+                />
+                {(() => {
+                  const originSticker = stickerById.get(connection.originId)
+                  const destinationSticker = stickerById.get(
+                    connection.destinationId,
+                  )
+                  const hideLabel =
+                    originSticker?.labelPosition === "none" &&
+                    destinationSticker?.labelPosition === "none"
+                  const label =
+                    originSticker?.text ||
+                    destinationSticker?.text ||
+                    plannerStickerMeta.warlockGate.defaultText ||
+                    plannerStickerMeta.warlockGate.chipLabel
+
+                  if (hideLabel || !label) {
+                    return null
+                  }
+
+                  const midpoint: Point = [
+                    (connection.originPosition[0] + connection.destinationPosition[0]) /
+                      2,
+                    (connection.originPosition[1] +
+                      connection.destinationPosition[1]) /
+                      2,
+                  ]
+                  const [longitude, latitude] = pointToLngLat(midpoint)
+
+                  return (
+                    <MapMarker
+                      key={`${connection.id}-label`}
+                      longitude={longitude}
+                      latitude={latitude}
+                      anchor="center"
+                      className="pointer-events-none z-[32]"
+                    >
+                      <MarkerContent className="pointer-events-none cursor-default">
+                        <div
+                          className={cn(
+                            "rounded-sm border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.22em] shadow-[0_6px_16px_rgba(0,0,0,0.45)] backdrop-blur-[2px]",
+                            connection.withinRange
+                              ? "border-black/45 bg-black/70 text-stone-100"
+                              : "border-red-300/55 bg-red-950/78 text-red-100",
+                          )}
+                        >
+                          {label}
+                        </div>
+                      </MarkerContent>
+                    </MapMarker>
+                  )
+                })()}
+              </div>
+            ))
+          : null}
+
+        {sceneMounted && gatePreviewGuide ? (
+          <>
+            <MapRoute
+              id="gate-preview-radius-base"
+              coordinates={circlePolygon(
+                gatePreviewGuide.originPosition,
+                warlockGateMaxRange,
+              ).map(pointToLngLat)}
+              color="#09090b"
+              width={5}
+              opacity={0.24}
+              interactive={false}
+            />
+            <MapRoute
+              id="gate-preview-radius"
+              coordinates={circlePolygon(
+                gatePreviewGuide.originPosition,
+                warlockGateMaxRange,
+              ).map(pointToLngLat)}
+              color={gatePreviewGuide.withinRange ? "#c084fc" : "#f87171"}
+              width={2.5}
+              opacity={0.9}
+              dashArray={[1, 1.8]}
+              interactive={false}
+            />
+            <MapRoute
+              id="gate-preview-link"
+              coordinates={[
+                pointToLngLat(gatePreviewGuide.originPosition),
+                pointToLngLat(gatePreviewGuide.previewPosition),
+              ]}
+              color={gatePreviewGuide.withinRange ? "#c084fc" : "#f87171"}
+              width={3}
+              opacity={0.92}
+              dashArray={[1.1, 1.9]}
+              interactive={false}
+            />
+          </>
         ) : null}
 
         {sceneMounted
@@ -731,16 +1198,16 @@ export function PlannerMapClient() {
           : null}
 
         {sceneMounted
-          ? route.stickers.map((sticker) => (
+          ? renderedStickers.map((sticker) => (
               <PlannerStickerMarker
                 key={sticker.id}
                 sticker={sticker}
+                invalid={invalidGateStickerIds.has(sticker.id)}
                 onContextMenu={(event) =>
                   handleStickerContextMenu(event, sticker)
                 }
-                onShiftClick={(targetSticker) =>
-                  setPendingStickerMoveId(targetSticker.id)
-                }
+                onShiftDragMove={handleShiftDragPreview}
+                onShiftDragEnd={handleShiftDragSticker}
               />
             ))
           : null}
@@ -779,12 +1246,54 @@ export function PlannerMapClient() {
           sticker={mapContextMenu.sticker}
           onAddNote={handleOpenAddNoteDialog}
           onDeleteSticker={handleDeleteSticker}
+          onEditSticker={handleOpenEditStickerDialog}
           onMoveSticker={handleMoveSticker}
           onMobInfo={handleOpenMobInfoDialog}
           position={mapContextMenu.position}
           x={mapContextMenu.x}
           y={mapContextMenu.y}
         />
+      ) : null}
+
+      {activeStickerKind ? (
+        <PlannerSelectedStickerTray
+          stickerKind={activeStickerKind}
+          pendingMove={pendingStickerKind !== null}
+          onExit={handleExitStickerMode}
+          className="pointer-events-auto absolute left-3 top-24 z-[440] md:left-auto md:right-[calc(26rem+1rem)] md:top-4"
+        />
+      ) : null}
+
+      {showStickerCursorPreview ? (
+        <div
+          className="pointer-events-none absolute z-[440]"
+          style={{
+            left: pointerPreview.x,
+            top: pointerPreview.y,
+            transform: "translate(-35%, -82%) rotate(-10deg)",
+          }}
+        >
+          <div className="relative">
+            <div className="absolute left-1/2 top-full h-5 w-5 -translate-x-1/2 -translate-y-3 rounded-full bg-black/30 blur-md" />
+            <div
+              className={cn(
+                "relative rounded-full border bg-black/65 p-1.5 shadow-[0_12px_24px_rgba(0,0,0,0.5)]",
+                plannerStickerMeta[activeStickerKind].tone,
+              )}
+            >
+              <img
+                src={plannerStickerMeta[activeStickerKind].iconSrc}
+                alt=""
+                aria-hidden="true"
+                draggable={false}
+                className="size-10 rounded-full object-cover opacity-95"
+              />
+            </div>
+            <div className="absolute -bottom-1 right-0 rounded-full border border-white/15 bg-black/70 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.2em] text-white/85">
+              {plannerStickerMeta[activeStickerKind].chipLabel}
+            </div>
+          </div>
+        </div>
       ) : null}
 
       {showBlockingOverlay && !sceneReady && !mapError ? (
@@ -795,12 +1304,14 @@ export function PlannerMapClient() {
 
       {pendingStickerMoveId ? (
         <div className="pointer-events-none absolute left-3 bottom-3 z-[430] border border-border/70 bg-card/88 px-3 py-2 text-xs text-foreground shadow-xl backdrop-blur md:left-4 md:bottom-4">
-          Shift-click picked up{" "}
+          Picked up{" "}
           {plannerStickerMeta[
-            route.stickers.find((item) => item.id === pendingStickerMoveId)
-              ?.kind ?? "bloodlust"
+            pendingStickerKind ?? "bloodlust"
           ].name.toLowerCase()}
-          . Click on the map to place it.
+          . Click on the map to place it
+          {pendingStickerKind === "warlockGate"
+            ? ` within ${warlockGateMaxRange} yd.`
+            : "."}
         </div>
       ) : null}
 
@@ -815,18 +1326,38 @@ export function PlannerMapClient() {
           pendingAnnotation?.kind === "note" ? pendingAnnotation.mobSpawn : null
         }
         stickerKind={
-          pendingAnnotation?.kind === "sticker"
+          pendingAnnotation?.kind === "edit-sticker"
             ? pendingAnnotation.stickerKind
             : null
         }
+        initialText={
+          pendingAnnotation?.kind === "edit-sticker"
+            ? pendingAnnotation.text
+            : ""
+        }
+        initialStickerLabelPosition={
+          pendingAnnotation?.kind === "edit-sticker"
+            ? pendingAnnotation.labelPosition
+            : "right"
+        }
         open={pendingAnnotation != null}
         position={pendingAnnotation?.position ?? null}
-        onCreateNote={handleCreateAnnotation}
+        onSubmit={handleCreateAnnotation}
         onOpenChange={(open) => {
           if (!open) {
             setPendingAnnotation(null)
           }
         }}
+        submitLabel={
+          pendingAnnotation?.kind === "edit-sticker"
+            ? "Save Sticker Text"
+            : "Add Note"
+        }
+        title={
+          pendingAnnotation?.kind === "edit-sticker"
+            ? `Edit ${plannerStickerMeta[pendingAnnotation.stickerKind].name} Text`
+            : "Add Note"
+        }
       />
 
       <PlannerMobInfoDialog
