@@ -1,10 +1,10 @@
 import {
   buildPlannerMobFeatureCollection,
   darkenPlannerMobColor,
+  effectivePlannerMobPixelsPerScaleAtZoom,
   ensurePlannerMobSprite,
   ensurePlannerMobSprites,
   parsePlannerMobSpriteId,
-  plannerMobPixelsPerScaleAtZoom,
   plannerMobSpriteSize,
   type PlannerMobFeatureCollection,
 } from "@/features/planner/lib/mob-rendering"
@@ -36,7 +36,7 @@ const emptyPlannerMobFeatureCollection: PlannerMobFeatureCollection = {
 }
 
 function responsivePixelsPerScaleAtZoom(zoom: number) {
-  return plannerMobPixelsPerScaleAtZoom(zoom) * (zoom >= 14 ? 1.12 : 1)
+  return effectivePlannerMobPixelsPerScaleAtZoom(zoom)
 }
 
 function markerRadiusExpression(multiplier = 0.5) {

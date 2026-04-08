@@ -13,9 +13,11 @@ const plannerMobSpriteCanvasSize = 160
 const plannerMobSpriteLayoutSize = 116
 const plannerMobScaleBase = 4
 const mercatorPixelsPerDegreeAtZoom0 = 512 / 360
+const plannerMobMinPixelsPerScale = 16
 
 export const plannerMobPortraitFallbackSrc = "/images/markers/skull.png"
 export const plannerMobSpriteSize = plannerMobSpriteLayoutSize
+export const plannerMobMinPixelsPerScaleAtLowZoom = plannerMobMinPixelsPerScale
 
 const missingPlannerMobPortraitIds = new Set<number>()
 const plannerMobSpriteCache = new globalThis.Map<
@@ -48,6 +50,19 @@ export type PlannerMobFeatureCollection = FeatureCollection<
   GeoJsonPoint,
   PlannerMobFeatureProperties
 >
+
+export type PlannerMobComputedMetrics = {
+  zoom: number
+  basePixelsPerScale: number
+  markerScale: number
+  ringRadius: number
+  ringDiameter: number
+  portraitDiameter: number
+  forceLabelSize: number
+  groupLabelSize: number
+  forceLabel: string
+  groupLabel: string
+}
 
 export function formatPlannerMobForces(value: number) {
   return Number.isInteger(value) ? `${value}` : value.toFixed(1)
@@ -99,6 +114,52 @@ export function plannerMobPixelsPerScaleAtZoom(zoom: number) {
     mercatorPixelsPerDegreeAtZoom0 *
     (2 ** zoom / mapWidth)
   )
+}
+
+export function effectivePlannerMobPixelsPerScaleAtZoom(zoom: number) {
+  return Math.max(
+    plannerMobPixelsPerScaleAtZoom(zoom) * (zoom >= 14 ? 1.12 : 1),
+    plannerMobMinPixelsPerScale,
+  )
+}
+
+export function getPlannerMobComputedMetrics(
+  mobSpawn: MobSpawn,
+  zoom: number,
+): PlannerMobComputedMetrics {
+  const basePixelsPerScale = effectivePlannerMobPixelsPerScaleAtZoom(zoom)
+  const markerScale = mobScale(mobSpawn)
+  const forceLabel = formatPlannerMobForces(mobSpawn.mob.count)
+  const groupLabel =
+    mobSpawn.spawn.group != null ? `G${mobSpawn.spawn.group}` : ""
+  const forceLabelScale = Math.min(1, 1.8 / forceLabel.length)
+  const groupLabelScale = groupLabel
+    ? Math.min(1, 1.8 / groupLabel.length)
+    : 1
+
+  const ringRadius = markerScale * basePixelsPerScale * 0.505
+  const portraitDiameter = markerScale * basePixelsPerScale * 0.92
+  const forceLabelSize = Math.min(
+    markerScale * forceLabelScale * basePixelsPerScale * 0.7,
+    254,
+  )
+  const groupLabelSize = Math.min(
+    markerScale * groupLabelScale * basePixelsPerScale * 0.7,
+    254,
+  )
+
+  return {
+    zoom,
+    basePixelsPerScale,
+    markerScale,
+    ringRadius,
+    ringDiameter: ringRadius * 2,
+    portraitDiameter,
+    forceLabelSize,
+    groupLabelSize,
+    forceLabel,
+    groupLabel,
+  }
 }
 
 export function darkenPlannerMobColor(color: string, factor = 0.5) {
